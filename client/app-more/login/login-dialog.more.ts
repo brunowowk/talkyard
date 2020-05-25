@@ -365,7 +365,21 @@ export const LoginDialogContent = createClassAndFactory({
 
     const ss = store.settings;
 
-    const anyOpenAuth = ss.enableGoogleLogin || ss.enableFacebookLogin ||
+    const customIdp: IdentityProviderPubFields | U = ss.customIdps && ss.customIdps[0];
+    const customOidcBtn = !customIdp ? null :
+        // Currently just one custom IDP.
+        OpenAuthButton({
+            ...makeOauthProps('icon-user', customIdp.displayName || customIdp.alias),
+            idp: customIdp });
+
+    // (Place any custom IDPs last by default — because if other authn methods enabled,
+    // then, they're probably for the company's customers/users, and they're typically
+    // more people than those in the company, so make things simple for them: show
+    // "their" buttons first.)
+    const customIdpBtnFirst = !customIdp ? false :
+            customIdp.guiOrder < 0;  // undef < 0  is false
+
+    const anyOpenAuth = customOidcBtn || ss.enableGoogleLogin || ss.enableFacebookLogin ||
         ss.enableTwitterLogin || ss.enableGitHubLogin || ss.enableLinkedInLogin;
 
     let content;
@@ -385,6 +399,7 @@ export const LoginDialogContent = createClassAndFactory({
             // Facebook's brand guidelines.
             t.ld.ContinueWithDots),
           r.div({ id: 'dw-lgi-other-sites' },
+            customIdpBtnFirst && customOidcBtn,
             !ss.enableGoogleLogin ? null :
                 OpenAuthButton(makeOauthProps('icon-google', 'Google')),
             !ss.enableFacebookLogin ? null :
@@ -397,6 +412,7 @@ export const LoginDialogContent = createClassAndFactory({
                 OpenAuthButton(makeOauthProps('icon-github-circled', 'GitHub')),
             !ss.enableLinkedInLogin ? null :
                 OpenAuthButton(makeOauthProps('icon-linkedin', 'LinkedIn')),
+            !customIdpBtnFirst && customOidcBtn,
             // SMALLER_BUNDLE  could remove the Yahoo icon?
             // OpenID 1.0 since long gone, so skip:  icon-yahoo Yahoo!
             )),
@@ -433,8 +449,13 @@ const OpenAuthButton = createClassAndFactory({
     // (This parameter tells the server to set a certain cookie. Setting it here
     // instead has no effect, don't know why.)
     const mayNotCreateUser = props.loginReason === 'LoginToAdministrate' ? 'mayNotCreateUser&' : '';
-    const url = origin() +
-        '/-/login-openauth/' + props.provider.toLowerCase() +
+
+    const idp: IdentityProviderPubFields | U = props.idp;
+    const urlPath = idp
+        ? `/-/authn/${idp.protocol}/${idp.alias}`                // new & nice
+        : `/-/login-openauth/${props.provider.toLowerCase()}`;   // old, try to remove
+
+    const urlPathAndQuery = urlPath +
         '?' + mayNotCreateUser +
         // If we are already in a dedicated full screen login window, the server should
         // redirect us inside this window to where we want to go after login.
@@ -443,6 +464,9 @@ const OpenAuthButton = createClassAndFactory({
         // window.opener, and then closes this popup. [49R6BRD2]
         (eds.isInLoginWindow ? '' : 'isInLoginPopup&') +
         'returnToUrl=' + (props.anyReturnToUrl || '');
+
+    const url = origin() + urlPathAndQuery;
+
     if (eds.isInLoginWindow) {
       // Let the server know we're in a login window, so it can choose to reply with
       // complete HTML pages to show in the login window.

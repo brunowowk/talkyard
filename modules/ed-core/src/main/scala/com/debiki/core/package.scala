@@ -99,6 +99,8 @@ package object core {
 
   type SiteTx = SiteTransaction  // renaming it, wip
 
+  type OidcProviderId = Int
+
   sealed abstract class MarkupLang
   object MarkupLang {
     case object Html extends MarkupLang
@@ -1220,7 +1222,7 @@ package object core {
   def AUDIT_LOG = ()      // Should add audit log entry
   def REFACTOR = ()       // The code can be refactored. Also search for "[refactor]".
   def RENAME = ()         // Something ought to be renamed.
-  def MOVE = ()
+  def MOVE = ()           // Move something elsewhere
   def QUICK = ()          // Let's do now soon — won't take long.
   def OPTIMIZE = ()
   def SLOW_QUERY = ()

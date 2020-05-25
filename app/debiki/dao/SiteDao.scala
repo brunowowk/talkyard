@@ -104,6 +104,7 @@ class SiteDao(
   with SettingsDao
   with SpecialContentDao
   with ed.server.auth.AuthzSiteDaoMixin
+  with talkyard.server.authn.AuthnSiteDaoMixin
   with ForumDao
   with CategoriesDao
   with PagesDao
