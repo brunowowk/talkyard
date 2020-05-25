@@ -44,6 +44,8 @@ object MemCache {
 
 class MemCache(val siteId: SiteId, val cache: DaoMemCache, mostMetrics: MostMetrics) {
 
+  REFACTOR // change DaoMemCache so there's one per site!  [mem_cache_per_site]
+
   private val logger = TyLogger("MemCache")
 
   COULD_OPTIMIZE; REFACTOR // Inline all clean-cache calls instead. [rm_cache_listeners]

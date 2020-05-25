@@ -517,6 +517,31 @@ trait UserDao {
   }
 
 
+  REFACTOR; MOVE // to package  talkyard.server.authn  ------------------------
+  def upsertIdentityProvider(identityProvider: IdentityProvider): AnyProblem = {
+    COULD_OPTIMIZE // clear idp cache
+    readWriteTransaction(_.upsertIdentityProvider(identityProvider))
+  }
+
+
+  def getIdentityProviderByAlias(protocol: String, alias: String): Option[IdentityProvider] = {
+    COULD_OPTIMIZE // cache
+    readOnlyTransaction(_.loadIdentityProviderByAlias(protocol, alias))
+  }
+
+
+  def getIdentityProviders(onlyEnabled: Boolean): Seq[IdentityProvider] = {
+    unimplementedIf(!onlyEnabled, "!onlyEnabled [TyE05KSG205")
+    loadAllIdentityProviders().filter(_.enabled_c)
+  }
+
+
+  def loadAllIdentityProviders(): Seq[IdentityProvider] = {
+    readOnlyTransaction(_.loadAllIdentityProviders())
+  }
+  // -------------------------------------------------------------------------
+
+
   def createIdentityUserAndLogin(newUserData: NewUserData, browserIdData: BrowserIdData)
         : MemberLoginGrant = {
     val loginGrant = readWriteTransaction { tx =>

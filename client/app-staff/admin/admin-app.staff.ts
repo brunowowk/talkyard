@@ -534,6 +534,7 @@ const SettingsPanel = createFactory({
           LiNavLink({ to: sr + 'features', id: 'e_A_Ss_Features' }, "Features"),
           LiNavLink({ to: sr + 'embedded-comments', id: 'e2eAA_Ss_EmbCmtsL' }, "Embedded Comments"),
           LiNavLink({ to: sr + 'language', id: 'e_AA_Ss_Lang' }, "Language"),
+          LiNavLink({ to: sr + 'email', id: 'e_AA_Ss_Email' }, "Email"),
           LiNavLink({ to: sr + 'site', id: 'e2eAA_Ss_AdvancedL' }, "Site")),
         r.div({ className: 'form-horizontal esAdmin_settings col-sm-10' },
           Switch({},
@@ -545,6 +546,7 @@ const SettingsPanel = createFactory({
             Route({ path: sr + 'features', render: () => FeatureSettings(ps) }),
             Route({ path: sr + 'embedded-comments', render: () => EmbeddedCommentsSettings(ps) }), // [8UP4QX0]
             Route({ path: sr + 'language', render: () => LanguageSettings(ps) }),
+            Route({ path: sr + 'email', render: () => EmailSettings(ps) }),
             Route({ path: sr + 'site', render: () => AdvancedSettings(ps) })))));
   }
 });
@@ -553,6 +555,16 @@ const SettingsPanel = createFactory({
 
 const LoginAndSignupSettings = createFactory({
   displayName: 'LoginAndSignupSettings',
+
+  getInitialState: function() {
+    return {};
+  },
+
+  componentDidMount: function() {
+    Server.loadIdentityProviders(idps => {
+      this.setState({ idps });
+    })
+  },
 
   render: function() {
     const props = this.props;
@@ -564,6 +576,7 @@ const LoginAndSignupSettings = createFactory({
       firstDefinedOf(getter(editedSettings), getter(currentSettings));
 
     const enableSso = valueOf(s => s.enableSso);
+    const enableOidc = valueOf(s => s.enableOidc);
     const loginRequired = valueOf(s => s.userMustBeAuthenticated);
     const allowSignup = valueOf(s => s.allowSignup);
     const requireVerifiedEmail = valueOf(s => s.requireVerifiedEmail);
@@ -743,10 +756,82 @@ const LoginAndSignupSettings = createFactory({
         begForEmailAddress */
 
 
-        // ---- Ways to sign up: Password, Guest
+        // ---- Ways to sign up
 
         r.h2({ className: 'col-sm-offset-3 s_A_Ss_S_Ttl'},
           "Ways to sign up"),
+
+
+        // ---- Ways to sign up: OpenID Connect
+
+        enableSso || !allowSignup ? null : Setting2(props, {
+          type: 'checkbox', label: "OpenID Connect (OIDC)",
+          className: 'e_A_Ss_S-OidcCB',
+          help: "Let your co-workers login via your own Single Sign-On solution " +
+              "(if any), e.g. KeyCloak or Azure AD. " +
+              "You can combine this with letting your users and customers sign up " +
+              "via social login (Gmail, Facebook etc) or via email and password.",
+          disabled: !valueOf(s => s.allowSignup),
+          getter: (s: Settings) => s.enableOidc,
+          update: (newSettings: Settings, target) => {
+            newSettings.enableOidc = target.checked;
+            if (newSettings.onlyOidc) newSettings.onlyOidc = false;
+          }
+        }),
+
+        enableSso || !allowSignup || !enableOidc ? null : Setting2(props, {
+          type: 'checkbox', label: r.span({}, r.b({}, "Only"), "OpenID Connect"),
+          className: 'e_A_Ss_S-OnlyOidcCB',
+          help: "Disables all other ways to sign up. You need to be logged in via OIDC " +
+              "already, to do this (otherwise you might lock yourself out?). " +
+              "*Not implemented*",
+          disabled: true, // !valueOf(s => s.allowSignup),  // + logged in via oidc *now*
+          getter: (s: Settings) => s.onlyOidc,
+          update: (newSettings: Settings, target) => {
+            newSettings.onlyOidc = target.checked;
+          }
+        }),
+
+        !this.state.idps?.length ? null : r.div({},
+          r.p({}, "Your custom Identity Providers (IDP:s):"),
+          r.pre({},
+            this.state.idps.map(idp => JSON.stringify(idp, undefined, 2))),
+          ),
+
+        enableSso || !allowSignup || !enableOidc || this.state.showOidcConfig ? null :
+            Button({ onClick: () => this.setState({ showOidcConfig: true }),
+                  className: 'col-sm-offset-3' },
+              "Configure OIDC ..."),
+
+        enableSso || !allowSignup || !enableOidc || !this.state.showOidcConfig ? null :
+            r.div({ className: 'col-sm-offset-3' },
+              Input({ type: 'textarea', label: "ODIC config, in json for now",
+                labelClassName: 'col-xs-2', wrapperClassName: 'col-xs-10',
+                value: this.state.oidcConfigText,
+                onChange: (event) => this.setState({ oidcConfigText: event.target.value }),
+                help: undefined }),
+              !!this.state.idpConfErr && r.p({}, this.state.idpConfErr),
+              !!this.state.savingOidc && r.p({}, this.state.savingOidc),
+              PrimaryButton({ onClick: () => {
+                    const jsonText = this.state.oidcConfigText;
+                    let json;
+                    try {
+                      json = JSON.parse(jsonText);
+                      this.setState({ savingOidc: "Saving ..." });
+                      Server.upsertIdentityProvider(json, () => {
+                        this.setState({ savingOidc: "Done, saved.", idpConfErr: null });
+                        //this.setState({ showOidcConfig: false });
+                      }, error => {
+                        this.setState({ savingOidc: null, idpConfErr: error });
+                      });
+                    }
+                    catch (ex) {
+                      this.setState({ idpConfErr: `Bad JSON: ${ex.toString()}` });
+                    }
+                  } },
+                "Save")),
+
+        // ---- Ways to sign up: Password, Guest
 
         enableSso || !allowSignup ? null : Setting2(props, {
           type: 'checkbox', label: "Allow creating local accounts",
@@ -2173,6 +2258,45 @@ const LanguageSettings = createFactory({
               "(But the admin area — where you are now — is always in English.)"))),
       ));
   }
+});
+
+
+
+const EmailSettings = createFactory({
+  displayName: 'EmailSettings',
+
+  render: function() {
+    const props = this.props;
+    //const currentSettings: Settings = props.currentSettings;
+    //const editedSettings: Settings = props.editedSettings;
+    //const defaultSettings: Settings = props.defaultSettings;
+
+    const enableCustomEmailServer =
+        Setting2(props, {
+          type: 'checkbox', label: "Use your own email service",
+          className: 'e_A_Ss_S-OwnEmlCB',
+          help: "Send emails from your server, so people see your sender address.",
+          getter: (s: Settings) => s.enableOwnEmailServer,
+          update: (newSettings: Settings, target) => {
+            newSettings.enableOwnEmailServer = target.checked;
+          }
+        });
+
+    const customEmailServerConfig =
+        Setting2(props, { type: 'textarea', label: "Email server config",
+          help: "Not yet implemented.",
+          placeholder: "??",
+          getter: (s: Settings) => s.ownEmailServerConfig,
+          update: (newSettings: Settings, target) => {
+            newSettings.ownEmailServerConfig = target.value;
+          }
+        });
+
+    return (
+      r.div({},
+        enableCustomEmailServer,
+        customEmailServerConfig));
+  },
 });
 
 

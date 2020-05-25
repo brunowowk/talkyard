@@ -950,6 +950,7 @@ interface SettingsVisibleClientSide extends TopicInterfaceSettings {
   allowSignup?: boolean;                // default: true
   allowLocalSignup?: boolean;           // default: true
   allowGuestLogin?: boolean;            // default: false
+  customIdps?: IdentityProviderPubFields[];   // default: undefined
   enableGoogleLogin: boolean;           // default: depends on config file
   enableFacebookLogin: boolean;         // default: depends on config file
   enableTwitterLogin: boolean;          // default: depends on config file
@@ -1467,6 +1468,8 @@ interface Settings extends TopicInterfaceSettings {
   allowSignup: boolean;
   allowLocalSignup: boolean;
   allowGuestLogin: boolean;
+  enableOidc: boolean;
+  onlyOidc: boolean;
   enableGoogleLogin: boolean;
   enableFacebookLogin: boolean;
   enableTwitterLogin: boolean;
@@ -1486,6 +1489,10 @@ interface Settings extends TopicInterfaceSettings {
   ssoUrl: string;
   ssoNotApprovedUrl: string;
   ssoLoginRequiredLogoutUrl: string;
+
+  // Own email server
+  enableOwnEmailServer: boolean;
+  ownEmailServerConfig: string;
 
   // Moderation
   requireApprovalIfTrustLte: TrustLevel;  // RENAME to apprBeforeIfTrustLte  ?
@@ -1601,6 +1608,35 @@ interface ApiSecret {
   deletedAt?: WhenMs;
   isDeleted: boolean;
   secretKey: string;
+}
+
+
+interface IdentityProviderPubFields {
+  protocol: string;
+  alias: string;
+  displayName?: string;
+  description?: string;
+  // iconUrl?: string;  — later
+  guiOrder?: number;
+}
+
+
+interface IdentityProviderSecretConf extends IdentityProviderPubFields {
+  id: number;
+  enabled: boolean;
+  trustVerifiedEmail: boolean;
+  linkAccountNoLogin: boolean;
+  syncMode: number;
+  idpAuthorizationUrl: string;
+  idpAccessTokenUrl: string;
+  idpUserInfoUrl: string;
+  idpLogoutUrl?: string;
+  idpClientId: string;
+  idpClientSecret: string;
+  idpIssuer?: string;
+  idpScopes?: string;
+  idpHostedDomain?: string;
+  idpSendUserIp?: boolean;
 }
 
 

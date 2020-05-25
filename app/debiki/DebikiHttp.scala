@@ -35,7 +35,7 @@ import scala.util.Try
 /**
  * HTTP utilities.
  */
-object EdHttp {
+object EdHttp {  // REFACTOR move to  talkyard.server.http object methods?
 
 
   // ----- Limits
