@@ -31,6 +31,7 @@ declare const stringifyQueryString: (s: any) => string;
 
 
 const rFragment = reactCreateFactory(React.Fragment);
+const rFr = rFragment;
 
 // Don't <reference>, causes lots of TS errors.
 declare const Bliss: any;
@@ -404,6 +405,16 @@ export function deleteById(itemsWithId: any[], idToDelete) {
       break;
     }
   }
+}
+
+
+export function url_getHost(url: St): St {
+  // @ifdef DEBUG
+  dieIf(!url, 'TyE305RKSG');
+  // @endif
+  if (!url) return '';
+  const parts = url.split('/');
+  return parts && parts.length >= 3 ? parts[2] : '';
 }
 
 

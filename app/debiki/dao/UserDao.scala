@@ -517,6 +517,50 @@ trait UserDao {
   }
 
 
+  REFACTOR; MOVE // to package  talkyard.server.authn  ------------------------
+  def upsertIdentityProvider(identityProvider: IdentityProvider): AnyProblem = {
+    COULD_OPTIMIZE // clear idp cache
+    readWriteTransaction(_.upsertIdentityProvider(identityProvider))
+  }
+
+
+  def getIdentityProviderByAlias(protocol: St, alias: St): Option[IdentityProvider] = {
+    COULD_OPTIMIZE // cache, use getIdentityProviders()
+    readOnlyTransaction(_.loadIdentityProviderByAlias(protocol, alias))
+  }
+
+
+  def getIdentityProviderById(id: IdendityProviderId): Option[IdentityProvider] = {
+    getIdentityProviders(onlyEnabled = false).find(_.id_c == id)
+  }
+
+
+  def getIdentityProviderNameFor(identity: OpenAuthDetails): Opt[St] = {
+    identity.siteCustomIdpId match {
+      case Some(id) =>
+        // Race: Could be missing, if an admin removed the IDP just now.
+        getIdentityProviderById(id).map(_.nameOrAlias)
+      case None =>
+        // Use the IDs defined by Silhouette, e.g. "google" or "facebook" lowercase :-|
+        identity.serverDefaultIdpId
+    }
+  }
+
+
+  def getIdentityProviders(onlyEnabled: Boolean): Seq[IdentityProvider] = {
+    COULD_OPTIMIZE // cache
+    val idps = loadAllIdentityProviders()
+    if (onlyEnabled) idps.filter(_.enabled_c)
+    else idps
+  }
+
+
+  def loadAllIdentityProviders(): Seq[IdentityProvider] = {
+    readOnlyTransaction(_.loadAllIdentityProviders())
+  }
+  // -------------------------------------------------------------------------
+
+
   def createIdentityUserAndLogin(newUserData: NewUserData, browserIdData: BrowserIdData)
         : MemberLoginGrant = {
     val loginGrant = readWriteTransaction { tx =>
@@ -558,8 +602,7 @@ trait UserDao {
     * Then we want to create a Gmail OpenAuth identity and connect it to the user
     * in the database.
     */
-  def createIdentityConnectToUserAndLogin(user: User, oauthDetails: OpenAuthDetails)
-        : MemberLoginGrant = {
+  def createIdentityLinkToUser(user: User, oauthDetails: OpenAuthDetails): Identity = {
     require(user.email.nonEmpty, "DwE3KEF7")
     require(user.emailVerifiedAt.nonEmpty, "DwE5KGE2")
     require(user.isAuthenticated, "DwE4KEF8")
@@ -568,7 +611,8 @@ trait UserDao {
       val identity = OpenAuthIdentity(id = identityId, userId = user.id, oauthDetails)
       tx.insertIdentity(identity)
       addUserStats(UserStats(user.id, lastSeenAt = tx.now))(tx)
-      MemberLoginGrant(Some(identity), user, isNewIdentity = true, isNewMember = false)
+      AUDIT_LOG
+      identity
     }
   }
 

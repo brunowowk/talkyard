@@ -81,15 +81,6 @@ function getAddressVerificationEmailSentDialog() {
 }
 
 
-interface CreateUserParams {
-  username: string;
-  fullName: string;
-  email: string;
-  authDataCacheKey?: string;
-  anyReturnToUrl?: string;
-  preventClose?: true;
-}
-
 interface CreateUserPostData extends CreateUserParams {
   username: string;
   fullName: string;
@@ -105,7 +96,7 @@ interface CreateUserPostData extends CreateUserParams {
  * the redirect should happen only if an email address verification email is sent,
  * and via a link in that email.
  */
-debiki.internal.showCreateUserDialog = function(params: CreateUserParams) {
+debiki.internal._showCreateUserDialog = function(params: CreateUserParams) {
   getCreateUserDialog().open(params);
 };
 
@@ -140,8 +131,8 @@ const CreateUserDialog = createClassAndFactory({
 
     let content;
     if (this.state.isOpen) {
-      const childProps = {
-        ...this.state.params,
+      const childProps: CreateUserDialogContentProps = {
+        ...params,
         store,
         afterLoginCallback: this.state.afterLoginCallback,
         closeDialog: this.close,
@@ -161,32 +152,34 @@ const CreateUserDialog = createClassAndFactory({
 });
 
 
+
 export var CreateUserDialogContent = createClassAndFactory({
   displayName: 'CreateUserDialogContent',
 
   getInitialState: function() {
+    const props: CreateUserDialogContentProps = this.props;
     // @ifdef DEBUG
-    dieIf(this.props.isForGuest && this.props.isForPasswordUser, 'TyE7UKWQ1');
-    dieIf(this.props.isForGuest && this.props.providerId, 'TyE7UKWQ2');
-    dieIf(this.props.isForPasswordUser && this.props.providerId, 'TyE7UKWQ3');
+    dieIf(props.isForGuest && props.isForPasswordUser, 'TyE7UKWQ1');
+    const forGuestOrPwd = props.isForGuest || props.isForPasswordUser;
+    dieIf(forGuestOrPwd && props.idpName, 'TyE7UKWQ2');
+    dieIf(forGuestOrPwd && props.idpHasVerifiedEmail, 'TyE7UKWQ4');
     // @endif
 
     // Avoid the Create User button being disabled because username-too-long.
-    const usernameNotTooLong = (this.props.username || '').substr(0, MaxUsernameLength);
+    const usernameNotTooLong = (props.username || '').substr(0, MaxUsernameLength);
 
     return {
       okayStatuses: {
         // Full name / alias / display name, is required, for guests.
-        fullName: !this.props.isForGuest,
-        // providerId always missing in emb cmts openauth popup?
-        email: this.props.providerId && !!this.props.email,
+        fullName: !props.isForGuest,
+        email: props.idpHasVerifiedEmail && !!props.email,
         // Guests have no username or password.
-        username: this.props.isForGuest || usernameNotTooLong.length >= 3, // [6KKAQDD0]
-        password: !this.props.isForPasswordUser,
+        username: props.isForGuest || usernameNotTooLong.length >= 3, // [6KKAQDD0]
+        password: !props.isForPasswordUser,
       },
       userData: {
-        fullName: this.props.fullName,
-        email: this.props.email,
+        fullName: props.fullName,
+        email: props.email,
         username: usernameNotTooLong,
       },
     };
@@ -212,18 +205,19 @@ export var CreateUserDialogContent = createClassAndFactory({
   },
 
   doCreateUser: function() {
-    const returnToUrl = this.props.anyReturnToUrl;
+    const props: CreateUserDialogContentProps = this.props;
+    const returnToUrl = props.anyReturnToUrl;
     const postData: CreateUserPostData = { ...this.state.userData, returnToUrl };
-    waitUntilAcceptsTerms(this.props.store, this.props.loginReason === LoginReason.BecomeAdmin, () => {
-      if (this.props.authDataCacheKey) { // [4WHKTP06]
-        postData.authDataCacheKey = this.props.authDataCacheKey;
+    waitUntilAcceptsTerms(props.store, props.loginReason === LoginReason.BecomeAdmin, () => {
+      if (props.authDataCacheKey) { // [4WHKTP06]
+        postData.authDataCacheKey = props.authDataCacheKey;
         Server.createOauthUser(postData, this.handleCreateUserResponse, this.handleErrorResponse);
       }
-      else if (this.props.isForPasswordUser) {
+      else if (props.isForPasswordUser) {
         postData.password = this.refs.password.getValue();
         Server.createPasswordUser(postData, this.handleCreateUserResponse, this.handleErrorResponse);
       }
-      else if (this.props.isForGuest) {
+      else if (props.isForGuest) {
         Server.loginAsGuest(
             postData.fullName, postData.email, this.handleCreateUserResponse, this.handleErrorResponse);
       }
@@ -234,7 +228,8 @@ export var CreateUserDialogContent = createClassAndFactory({
   },
 
   handleCreateUserResponse: function(response: GuestLoginResponse) {
-    const anyReturnToUrl: string | U = this.props.anyReturnToUrl;
+    const props: CreateUserDialogContentProps = this.props;
+    const anyReturnToUrl: St | U = props.anyReturnToUrl;
     if (!response.userCreatedAndLoggedIn) {
       dieIf(response.emailVerifiedAndLoggedIn, 'EdE2TSBZ2');
       ReactActions.newUserAccountCreated();
@@ -243,7 +238,7 @@ export var CreateUserDialogContent = createClassAndFactory({
       // directly without reading the message about checking their email inbox. Then
       // they don't know what to do, and are stuck.
       // (Probably this email verif step needs to be totally removed. [SIMPLNEWSITE]
-      const mayCloseDialog = this.props.loginReason !== LoginReason.BecomeAdmin;
+      const mayCloseDialog = props.loginReason !== LoginReason.BecomeAdmin;
       getAddressVerificationEmailSentDialog().sayVerifEmailSent(mayCloseDialog);
     }
     else if (anyReturnToUrl && !eds.isInLoginPopup &&
@@ -257,8 +252,8 @@ export var CreateUserDialogContent = createClassAndFactory({
       // Now, instead, for Usability Testing Exchange [plugin]: (and perhaps better, always?)
       // (afterLoginCallback = always called after signup if logged in, and the return-to-url
       // is included in the continue-link via the email.)  */
-      if (returnToUrl === currentUrl || this.props.afterLoginCallback) {
-        const afterLoginCallback = this.props.afterLoginCallback; // gets nulled when dialogs closed
+      if (returnToUrl === currentUrl || props.afterLoginCallback) {
+        const afterLoginCallback = props.afterLoginCallback; // gets nulled when dialogs closed
         debiki2.ReactActions.loadMyself(() => {
           if (afterLoginCallback) {
             afterLoginCallback();
@@ -288,7 +283,7 @@ export var CreateUserDialogContent = createClassAndFactory({
         close();
       }
     }
-    this.props.closeDialog('CloseAllLoginDialogs');
+    props.closeDialog('CloseAllLoginDialogs');
   },
 
   handleErrorResponse: function(failedRequest: HttpRequest) {
@@ -303,14 +298,14 @@ export var CreateUserDialogContent = createClassAndFactory({
   },
 
   render: function() {
-    const props = this.props;
+    const props: CreateUserDialogContentProps = this.props;
     const store: Store = props.store;
     const state = this.state;
     const hasEmailAddressAlready = props.email && props.email.length;
     const isForGuest = this.props.isForGuest;
 
-    const emailHelp = props.providerId && hasEmailAddressAlready ?
-        t.cud.EmailVerifBy_1 + props.providerId + t.cud.EmailVerifBy_2 : null;
+    const emailHelp = props.idpHasVerifiedEmail && hasEmailAddressAlready ?
+        t.cud.EmailVerifBy_1 + props.idpName + t.cud.EmailVerifBy_2 : null;
 
     // Undefined —> use the default, which is True.  ... but for now, always require email [0KPS2J]
     const emailOptional = false; // store.settings.requireVerifiedEmail === false;
@@ -349,7 +344,8 @@ export var CreateUserDialogContent = createClassAndFactory({
     const orCreateAccountMaybe = !isForGuest ? null :
         r.div({ className: 's_LD_OrCreateAccount' },
           t.cud.OrCreateAcct_1,
-          r.a({ className: 's_LD_CreateAccount', onClick: this.props.switchBetweenGuestAndPassword },
+          r.a({ className: 's_LD_CreateAccount',
+                onClick: props.switchBetweenGuestAndPassword },
             t.cud.OrCreateAcct_2),
           t.cud.OrCreateAcct_3,
           r.code({}, t.cud.OrCreateAcct_4),
@@ -359,7 +355,7 @@ export var CreateUserDialogContent = createClassAndFactory({
     // People wouldn't find that text & button anyway? & in embedded comments, if guest
     // login is enabled, it's the default way to signup anyway, no need to switch. [8UKBTQ2]
      /* const orLoginAsGuestMaybe
-          = isForGuest || this.props.loginReason === LoginReason.LoginToChat ? null :
+          = isForGuest || props.loginReason === LoginReason.LoginToChat ? null :
         r.div({},  ... switch to guest login text & button ...); */
 
     const disableSubmit = _.includes(_.values(this.state.okayStatuses), false);

@@ -921,13 +921,23 @@ const AccountTab = createFactory<any, any>({
     const loginsList =
       r.ul({ className: 's_UP_EmLg_LgL' },
         loginMethods.map((method: UserAccountLoginMethod) => {
-          const withExternalId = !method.externalId || !isStaff(me) ? null :
-              r.span({}, " external id: ", method.externalId);
-          return r.li({ className: 's_UP_EmLg_LgL_It', key: `${method.provider}:${method.email}` },
+          const idpUserId = !method.idpUserId || !isStaff(me) ? null :
+                rFr({}, r.br(), "IDP user id: ", r.code({}, method.idpUserId));
+
+          const idpAuthUrl = !method.idpAuthUrl || !me.isAdmin ? null :
+                rFr({}, r.br(), "IDP auth url: ", r.code({}, method.idpAuthUrl));
+
+          const comma = method.idpUsername && method.idpEmailAddr ? ', ' : '';
+
+          return r.li({ className: 's_UP_EmLg_LgL_It',
+                      key: `${method.provider}:${method.idpUserId}` },
             r.span({ className: 's_UP_EmLg_LgL_It_How' }, method.provider),
             t.upp.commaAs,
-            r.span({ className: 's_UP_EmLg_LgL_It_Id' }, method.email),
-            withExternalId)
+            r.span({ className: 's_UP_EmLg_LgL_It_Id' }, method.idpUsername),
+            comma,
+            r.span({ className: 's_UP_EmLg_LgL_It_Id' }, method.idpEmailAddr),
+            idpUserId,
+            idpAuthUrl)
             // r.div({}, Button({}, "Remove")))  — fix later
         }));
 

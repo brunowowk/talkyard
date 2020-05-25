@@ -59,9 +59,6 @@ export function loginIfNeededReturnToAnchor(
   else if (eds.isInIframe) {
     // ... or only if isInSomeEmbCommentsIframe()?
 
-    // (Previously, a Chrome 63 bug: https://bugs.chromium.org/p/chromium/issues/detail?id=796912
-    // required an ugly workaround here: to poll and see if a session cookie suddenly appeared.
-    // DO_AFTER Remove this comment 2019-06-01? [4PKGTEW20])
     anyContinueAfterLoginCallback = success;
 
     // Don't open a dialog inside the iframe; open a popup instead.
@@ -86,12 +83,13 @@ export function loginIfNeeded(loginReason, returnToUrl: string, onDone?: () => v
     if (onDone) onDone();
   }
   else {
-    goToSsoPageOrElse(returnToUrl, function() {
+    goToSsoPageOrElse(returnToUrl, loginReason, onDone, function() {
       Server.loadMoreScriptsBundle(() => {
         // People with an account, are typically logged in already, and won't get to here often.
         // Instead, most people here, are new users, so show the signup dialog.
         // (Why won't this result in a compil err? (5BKRF020))
-        debiki2.login.getLoginDialog().openToSignUp(loginReason, returnToUrl, onDone || function() {});
+        debiki2.login.getLoginDialog().openToSignUp(
+              loginReason, returnToUrl, onDone || function() {});
       });
     });
   }
@@ -99,7 +97,7 @@ export function loginIfNeeded(loginReason, returnToUrl: string, onDone?: () => v
 
 
 export function openLoginDialogToSignUp(purpose) {
-  goToSsoPageOrElse(location.toString(), function() {
+  goToSsoPageOrElse(location.toString(), purpose, null, function() {
     Server.loadMoreScriptsBundle(() => {
       debiki2.login.getLoginDialog().openToSignUp(purpose);
     });
@@ -108,7 +106,7 @@ export function openLoginDialogToSignUp(purpose) {
 
 
 export function openLoginDialog(purpose) {
-  goToSsoPageOrElse(location.toString(), function() {
+  goToSsoPageOrElse(location.toString(), purpose, null, function() {
     Server.loadMoreScriptsBundle(() => {
       debiki2.login.getLoginDialog().openToLogIn(purpose);
     });
@@ -116,22 +114,45 @@ export function openLoginDialog(purpose) {
 }
 
 
-function goToSsoPageOrElse(returnToUrl: string, fn) {
+function goToSsoPageOrElse(returnToUrl: St, toDoWhat, doAfterLogin: () => void,
+        orElse: () => void) {
+  // Dupl code? [SSOINSTAREDIR]
   const store: Store = ReactStore.allData();
-  const settings: SettingsVisibleClientSide = store.settings;
-  if (settings.enableSso && settings.ssoUrl) {
-    const ssoUrl = makeSsoUrl(store, returnToUrl);
-    location.assign(ssoUrl);
+  const anySsoUrl: St | U = makeSsoUrl(store, returnToUrl);
+  if (anySsoUrl) {
+    // Currently Talkyard's own SSO opens in the same window, let's keep
+    // that behavior, for backw compatibility. Maybe one day will be a conf val?
+    // However, let custom IDP SSO open in a popup — this works better
+    // with embedded comments, [2ABKW24T]
+    // and if logging in because sumbitting a reply — then, it's nice to
+    // stay on the same page (and navigate away only in a popup win),
+    // so can finish submitting the reply, after login.
+    if (store.settings.enableSso) {
+      location.assign(anySsoUrl);
+    }
+    else {
+      anyContinueAfterLoginCallback = doAfterLogin;
+      const url = origin() + '/-/login-popup?mode=' + toDoWhat +
+            '&isInLoginPopup&returnToUrl=' + returnToUrl;
+      d.i.createLoginPopup(url);
+    }
   }
   else {
-    fn();
+    orElse();
   }
 }
 
 
-export function makeSsoUrl(store: Store, returnToUrlMaybeMagicRedir: string): string | undefined {
+// onlyIfTySso: Only consider Talkyard's own SSO, not any external OIDC IDP.
+//
+export function makeSsoUrl(store: Store, returnToUrlMaybeMagicRedir: St,
+      forTySsoTest?: true): St | U {
   const settings: SettingsVisibleClientSide = store.settings;
-  if (!settings.ssoUrl)
+  const talkyardSsoUrl = (settings.enableSso || forTySsoTest) && settings.ssoUrl;
+  const customSsoIdp = !forTySsoTest && settings.useOnlyCustomIdps &&
+          settings.customIdps?.length === 1 && settings.customIdps[0];
+
+  if (!customSsoIdp && !talkyardSsoUrl)
     return undefined;
 
   // Remove magic text that tells the Talkyard server to redirect to the return to url,
@@ -151,11 +172,15 @@ export function makeSsoUrl(store: Store, returnToUrlMaybeMagicRedir: string): st
   // Talkyard forum. And then, better use `${talkyardPathQueryEscHash}` instead. However,
   // can be many Talkyard origins, if there's also a blog with embedded comments,
   // or more than one forum, which all use the same SSO login page.
-  const ssoUrlWithReturn = (
-      settings.ssoUrl
+  const ssoUrlWithReturn = talkyardSsoUrl
+      ? (talkyardSsoUrl
         .replace('${talkyardUrlDangerous}', returnToUrl)
         .replace('${talkyardOriginDangerous}', origin)
-        .replace('${talkyardPathQueryEscHash}', returnToPathQueryHash));
+        .replace('${talkyardPathQueryEscHash}', returnToPathQueryHash))
+      : (
+        // Later: Incl returnToPathQueryHash
+        `${UrlPaths.AuthnRoot}${customSsoIdp.protocol}/${customSsoIdp.alias}`);
+
   return ssoUrlWithReturn;
 }
 

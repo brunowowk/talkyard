@@ -950,6 +950,8 @@ interface SettingsVisibleClientSide extends TopicInterfaceSettings {
   allowSignup?: boolean;                // default: true
   allowLocalSignup?: boolean;           // default: true
   allowGuestLogin?: boolean;            // default: false
+  customIdps?: IdentityProviderPubFields[];   // default: undefined
+  useOnlyCustomIdps?: boolean;          // default: false
   enableGoogleLogin: boolean;           // default: depends on config file
   enableFacebookLogin: boolean;         // default: depends on config file
   enableTwitterLogin: boolean;          // default: depends on config file
@@ -1218,6 +1220,31 @@ interface UserDetailsStatsGroups extends UserInclDetailsWithStats {
 }
 
 
+interface CreateUserParams {
+  idpName?: St;
+  idpHasVerifiedEmail?: Bo;
+  username: St;
+  fullName: St;
+  email: St;
+  authDataCacheKey?: St;
+  anyReturnToUrl?: St;
+  preventClose?: true;
+}
+
+
+interface CreateUserDialogContentProps extends CreateUserParams {
+  store: Store;
+  afterLoginCallback;
+  closeDialog: (_?: St) => void;
+  loginReason?;
+  isForGuest?: Bo;
+  isForPasswordUser?: Bo;
+
+  switchBetweenGuestAndPassword?: () => void;
+}
+
+
+
 interface UiPrefs {
   inp?: UiPrefsIninePreviews;
   fbs?: UiPrefsForumButtons;
@@ -1465,6 +1492,8 @@ interface Settings extends TopicInterfaceSettings {
   userMustBeApproved: boolean;
   inviteOnly: boolean;
   allowSignup: boolean;
+  enableCustomIdps: Bo;
+  useOnlyCustomIdps: Bo;
   allowLocalSignup: boolean;
   allowGuestLogin: boolean;
   enableGoogleLogin: boolean;
@@ -1486,6 +1515,10 @@ interface Settings extends TopicInterfaceSettings {
   ssoUrl: string;
   ssoNotApprovedUrl: string;
   ssoLoginRequiredLogoutUrl: string;
+
+  // Own email server
+  enableOwnEmailServer: boolean;
+  ownEmailServerConfig: string;
 
   // Moderation
   requireApprovalIfTrustLte: TrustLevel;  // RENAME to apprBeforeIfTrustLte  ?
@@ -1601,6 +1634,36 @@ interface ApiSecret {
   deletedAt?: WhenMs;
   isDeleted: boolean;
   secretKey: string;
+}
+
+
+interface IdentityProviderPubFields {
+  protocol: string;
+  alias: string;
+  displayName?: string;
+  description?: string;
+  // iconUrl?: string;  — later
+  guiOrder?: number;
+}
+
+
+interface IdentityProviderSecretConf extends IdentityProviderPubFields {
+  id: number;
+  enabled: boolean;
+  adminComments?: St;
+  trustVerifiedEmail: boolean;
+  linkAccountNoLogin: boolean;
+  syncMode: number;
+  idpAuthorizationUrl: string;
+  idpAccessTokenUrl: string;
+  idpUserInfoUrl: string;
+  idpLogoutUrl?: string;
+  idpClientId: string;
+  idpClientSecret: string;
+  idpIssuer?: string;
+  idpScopes?: string;
+  idpHostedDomain?: string;
+  idpSendUserIp?: boolean;
 }
 
 
@@ -1831,8 +1894,10 @@ interface UserAccountEmailAddr {
 interface UserAccountLoginMethod {  // Maybe repl w Identity = Scala: JsIdentity?
   loginType: string;
   provider: string;
-  email?: string;
-  externalId?: string;
+  idpAuthUrl?: St;
+  idpUsername?: St;
+  idpEmailAddr?: St;
+  idpUserId?: string;
 }
 
 

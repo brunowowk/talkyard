@@ -14,7 +14,10 @@ declare function createReactClass<P, S = {}>(spec: React.ComponentSpec<P, S>):
     React.ClassicComponentClass<P>;
 
 declare function reactCreateFactory(x);
-declare const rFragment: any;
+
+// React.Fragment
+declare const rFragment: any;  // soo long! CLEAN_UP REMOVE
+declare const rFr: any;      // better
 
 declare function doNextFrameOrNow(x);
 declare function getSetCookie(cookieName: string, value?: string, options?: any): string | null;
@@ -155,6 +158,8 @@ declare namespace debiki2 {
 
   function replaceById(itemsWithId: any[], replacement);
   function deleteById(itemsWithId: any[], id);
+  function url_getHost(url: St): St;
+  function arr_sortAlphaInPlace<V>(vs: V[], strFn: (v: V) => St);
 
   namespace notfs {
     function PageNotfPrefButton(props: {
@@ -222,7 +227,7 @@ declare namespace debiki2 {
     function openLoginDialogToSignUp(purpose);
     function openLoginDialog(purpose);
 
-    function makeSsoUrl(store: Store, returnToUrl: string): string;
+    function makeSsoUrl(store: Store, returnToUrl: St, forTySsoTest?: true): St;
   }
 
   function reactGetRefRect(ref): Rect;

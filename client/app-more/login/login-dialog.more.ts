@@ -267,9 +267,25 @@ export const LoginDialogContent = createClassAndFactory({
     // so one won't see an empty page with just a "Log In" button (the .s_LD_SsoB button).
     // This redirect could be done server side, here: [COULDSSOREDIR]. However, then
     // makeSsoUrl() would need to be available server side too.
+    // Dupl code? [SSOINSTAREDIR]  lgi xs  f
+    const ssoUrl = makeSsoUrl(store, location.toString());
     if (settings.effectiveSsoLoginRequiredLogoutUrl) {
-      const ssoUrl = makeSsoUrl(store, location.toString());
+      // @ifdef DEBUG
+      dieIf(!ssoUrl, 'TyE395KSETRS2');
+      // @endif
       location.assign(ssoUrl);
+    }
+    else if (ssoUrl && eds.isInLoginPopup) {
+      // Then, since this site is Single Sign-On, there'd be nothing to
+      // choose among in this login popup — so redirect to the ssoUrl directly.
+      if (!settings.useOnlyCustomIdps) {
+        // But, wait with this — might change old behavior. Maybe maybe could
+        // cause some bug? DO_AFTER 2020-11-01 always location.assign?
+        // But with a rollback feature flag?
+      }
+      else {
+        location.assign(ssoUrl);
+      }
     }
   },
 
@@ -289,12 +305,12 @@ export const LoginDialogContent = createClassAndFactory({
     const childDialogProps = _.clone(this.props);
     childDialogProps.closeDialog = closeChildDialog;  // CLEAN_UP can REMOVE?
 
-    const makeOauthProps = (iconClass: string, provider: string, content?) => {
+    const makeOauthProps = (iconClass: St, provider: St, content?) => {
       return {
         id: 'e2eLogin' + provider,
-        iconClass: iconClass,
-        provider: provider,
-        loginReason: loginReason,
+        iconClass,
+        provider,
+        loginReason,
         anyReturnToUrl: this.props.anyReturnToUrl,
         content
       };
@@ -365,16 +381,37 @@ export const LoginDialogContent = createClassAndFactory({
 
     const ss = store.settings;
 
-    const anyOpenAuth = ss.enableGoogleLogin || ss.enableFacebookLogin ||
-        ss.enableTwitterLogin || ss.enableGitHubLogin || ss.enableLinkedInLogin;
+    const customIdps: IdentityProviderPubFields[] = ss.customIdps || [];
+    const customOidcBtns = customIdps.map(idp =>
+        OpenAuthButton({
+            ...makeOauthProps('icon-user',
+                  `${idp.protocol}/${idp.alias}`, idp.displayName),
+            key: `${idp.protocol}/${idp.alias}`,
+            idp }));
+
+    // (Place any custom IDPs last by default — because if other authn methods enabled,
+    // then, they're probably for the company's customers/users, and they're typically
+    // more people than those in the company, so make things simple for them: show
+    // "their" buttons first.)
+    //const customIdpBtnFirst = !customIdp ? false :
+    //        customIdp.guiOrder < 0;  // undef < 0  is false
+
+    const anyOpenAuth = customIdps.length || ss.enableGoogleLogin ||
+        ss.enableFacebookLogin || ss.enableTwitterLogin || ss.enableGitHubLogin ||
+        ss.enableLinkedInLogin;
+
+    const canUseCustomIdps = ss.customIdps?.length;
+    const useOnlyCustomIdps = ss.useOnlyCustomIdps && canUseCustomIdps;
+    const allowLocalSignup = ss.allowLocalSignup !== false && !useOnlyCustomIdps;
 
     let content;
-    if (settings.enableSso) {
-      const ssoUrl = makeSsoUrl(store, location.toString());
+
+    const anySsoUrl = makeSsoUrl(store, location.toString());
+    if (anySsoUrl) {
       content =
           r.div({ style: { textAlign: 'center' }},
-            ExtLinkButton({ href: ssoUrl, className: 's_LD_SsoB btn-primary' },
-              "Log In"));
+            ExtLinkButton({ href: anySsoUrl, className: 's_LD_SsoB btn-primary' },
+              t.LogIn));
     }
     else {
       content = rFragment({},
@@ -385,6 +422,7 @@ export const LoginDialogContent = createClassAndFactory({
             // Facebook's brand guidelines.
             t.ld.ContinueWithDots),
           r.div({ id: 'dw-lgi-other-sites' },
+            //customIdpBtnFirst && customOidcBtn,
             !ss.enableGoogleLogin ? null :
                 OpenAuthButton(makeOauthProps('icon-google', 'Google')),
             !ss.enableFacebookLogin ? null :
@@ -397,11 +435,13 @@ export const LoginDialogContent = createClassAndFactory({
                 OpenAuthButton(makeOauthProps('icon-github-circled', 'GitHub')),
             !ss.enableLinkedInLogin ? null :
                 OpenAuthButton(makeOauthProps('icon-linkedin', 'LinkedIn')),
+            //!customIdpBtnFirst && customOidcBtn,
+            customOidcBtns,
             // SMALLER_BUNDLE  could remove the Yahoo icon?
             // OpenID 1.0 since long gone, so skip:  icon-yahoo Yahoo!
             )),
 
-        isSignUp && ss.allowLocalSignup === false ? null : (
+        isSignUp && !allowLocalSignup ? null : (
           r.p({ id: 'dw-lgi-or-login-using' },
             anyOpenAuth
               ? (isSignUp
@@ -432,9 +472,15 @@ const OpenAuthButton = createClassAndFactory({
     // creation of  new users from here.
     // (This parameter tells the server to set a certain cookie. Setting it here
     // instead has no effect, don't know why.)
-    const mayNotCreateUser = props.loginReason === 'LoginToAdministrate' ? 'mayNotCreateUser&' : '';
-    const url = origin() +
-        '/-/login-openauth/' + props.provider.toLowerCase() +
+    const mayNotCreateUser =
+            props.loginReason === 'LoginToAdministrate' ? 'mayNotCreateUser&' : '';
+
+    const idp: IdentityProviderPubFields | U = props.idp;
+    const urlPath = idp
+        ? `/-/authn/${idp.protocol}/${idp.alias}`                // new & nice
+        : `/-/login-openauth/${props.provider.toLowerCase()}`;   // old, try to remove
+
+    const urlPathAndQuery = urlPath +
         '?' + mayNotCreateUser +
         // If we are already in a dedicated full screen login window, the server should
         // redirect us inside this window to where we want to go after login.
@@ -443,6 +489,9 @@ const OpenAuthButton = createClassAndFactory({
         // window.opener, and then closes this popup. [49R6BRD2]
         (eds.isInLoginWindow ? '' : 'isInLoginPopup&') +
         'returnToUrl=' + (props.anyReturnToUrl || '');
+
+    const url = origin() + urlPathAndQuery;
+
     if (eds.isInLoginWindow) {
       // Let the server know we're in a login window, so it can choose to reply with
       // complete HTML pages to show in the login window.
@@ -468,7 +517,8 @@ const OpenAuthButton = createClassAndFactory({
   },
   render: function() {
     return (
-      Button({ id: this.props.id, className: this.props.iconClass, onClick: this.onClick },
+      Button({ id: this.props.id, // key: this.props.id,
+          className: this.props.iconClass, onClick: this.onClick },
         this.props.content || this.props.provider));
   }
 });

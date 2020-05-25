@@ -50,10 +50,14 @@ class LoginAsGuestController @Inject()(cc: ControllerComponents, edContext: EdCo
 
     val settings = request.dao.getWholeSiteSettings()
 
-    throwForbiddenIf(settings.enableSso, "TyESSO0GST", "Guest login disabled, when SSO enabled")
-    throwForbiddenIf(!settings.allowSignup, "TyE0SIGNUP03", "Creation of new accounts is disabled")
+    throwForbiddenIf(settings.enableSso,
+          "TyESSO0GST", "Guest login disabled, when SSO enabled")
+    throwForbiddenIf(settings.useOnlyCustomIdps,
+          "TyECUIDPGST", "Guest login disabled, when using only custom OIDC or OAuth2")
+    throwForbiddenIf(!settings.allowSignup,
+          "TyE0SIGNUP03", "Creation of new accounts is disabled")
     throwForbiddenIf(!settings.isGuestLoginAllowed,
-      "TyE4K5FW2", "Guest login disabled; you cannot login as guest here")
+          "TyE4K5FW2", "Guest login disabled; you cannot login as guest here")
 
     throwForbiddenIf(Participant nameIsWeird name, "TyE82CW19", "Weird name. Please use no weird characters")
     throwForbiddenIf(name.isEmpty, "TyE872Y90", "Please fill in your name")

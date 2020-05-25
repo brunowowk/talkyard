@@ -947,6 +947,18 @@ export function stopRedirectingExtraHostnames(success: () => void) {
 }
 
 
+
+export function loadIdentityProviders(onDone: (idps: IdentityProviderSecretConf[]) => void) {
+  get('/-/load-oidc-config', onDone);
+}
+
+
+export function upsertIdentityProvider(config: IdentityProviderSecretConf, onDone: () => void,
+        onError: (message: string) => void) {
+  postJsonSuccess('/-/upsert-oidc-config', onDone, config);
+}
+
+
 export function loadSpecialContent(rootPageId: string, contentId: string,
       doneCallback: (any) => void) {
   let url = '/-/load-special-content?rootPageId=' + (rootPageId ? rootPageId : '') +

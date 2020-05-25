@@ -125,7 +125,10 @@ class LoginWithPasswordController @Inject()(cc: ControllerComponents, edContext:
         // could sign up for SiteStatus.HiddenUnlessStaff/Admin. So, not right now.
         // Perhaps later though, if staff can be invited directly via invite emails. [5PY8FD2]
         allowAnyone = true) { request: JsonPostRequest =>
-    val body = request.body
+
+    // A bit dupl code. [2FKD05]
+    import request.body
+
     val fullName = (body \ "fullName").asOptStringNoneIfBlank
     val emailAddress = (body \ "email").as[String].trim
     val username = (body \ "username").as[String].trim
@@ -152,6 +155,8 @@ class LoginWithPasswordController @Inject()(cc: ControllerComponents, edContext:
 
     throwForbiddenIf(siteSettings.enableSso,
       "TyESSO0OSIGNUP", "Creation of local password accounts is disabled, because Single Sign-On enabled")
+    throwForbiddenIf(siteSettings.useOnlyCustomIdps, "TyECUSTIDP",
+        "Password login disabled — using only custom OIDC or OAuth2")
     throwForbiddenIf(!siteSettings.allowSignup, "TyE0SIGNUP01", "Creation of new accounts is disabled")
     throwForbiddenIf(!siteSettings.allowLocalSignup,
       "TyE0LCALSIGNUP", "Creation of local password accounts has been disabled")
@@ -172,7 +177,8 @@ class LoginWithPasswordController @Inject()(cc: ControllerComponents, edContext:
 
     val mayPostBeforeEmailVerified = !becomeOwner && siteSettings.mayPostBeforeEmailVerified
 
-    // Some dupl code. [2FKD05]
+    // More dupl code. [2FKD05]
+
     if (!requireVerifiedEmail && emailAddress.isEmpty) {
       // Fine. If needn't verify email, then people can specify non-existing addresses,
       // so then we might as well accept no-email-at-all.
@@ -349,6 +355,7 @@ class LoginWithPasswordController @Inject()(cc: ControllerComponents, edContext:
 
     REFACTOR // A bit dupl code. [4KDPREU2]  looks 100% fine to break out fn, & place in UserDao.
     // and delete dao.verifyPrimaryEmailAddres().
+    // Or maybe save one-time secrets in Redis instead of email ids? [4KDPREU2]
 
     SECURITY // don't let the same email verif url be used more than once?
     val email = request.dao.loadEmailById(emailId) getOrElse {

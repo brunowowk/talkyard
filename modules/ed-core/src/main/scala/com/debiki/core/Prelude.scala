@@ -721,6 +721,11 @@ object Prelude {   CLEAN_UP; RENAME // to BugDie and re-export the interesting
       else Some(trimmed)
     }
 
+    def noneIfEmpty: Opt[St] = {
+      if (underlying.isEmpty) None
+      else Some(underlying)
+    }
+
     def isAToZUnderscoreOnly: Boolean =
       AToZUnderscoreRegex.pattern.matcher(underlying).matches
 

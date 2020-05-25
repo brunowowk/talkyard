@@ -36,8 +36,12 @@ const Alert = rb.Alert;
 
 const PageUnloadAlerter = utils.PageUnloadAlerter;
 
-
 const SsoTestPath = '/-/sso-test';
+
+function showAll() {
+  return location.hash.indexOf('&showAll') >= 0;
+}
+
 
 export function staffRoutes() {
   // Only admins may currently access the settings tab. Moderators are instead supposed to review.
@@ -82,7 +86,8 @@ const SsoTestComponent = createReactClass(<any> {
     const store: Store = this.state.store;
     const settings = store.settings;
     const me: Myself = store.me;
-    const ssoUrl = login.makeSsoUrl(store, window.location.toString());
+    const ssoUrl = login.makeSsoUrl(
+            store, window.location.toString(), true /* forTySsoTest */);
 
     const noSsoUrlInfo = ssoUrl ? null :
       rFragment({},
@@ -534,6 +539,7 @@ const SettingsPanel = createFactory({
           LiNavLink({ to: sr + 'features', id: 'e_A_Ss_Features' }, "Features"),
           LiNavLink({ to: sr + 'embedded-comments', id: 'e2eAA_Ss_EmbCmtsL' }, "Embedded Comments"),
           LiNavLink({ to: sr + 'language', id: 'e_AA_Ss_Lang' }, "Language"),
+          LiNavLink({ to: sr + 'email', id: 'e_AA_Ss_Email' }, "Email"),
           LiNavLink({ to: sr + 'site', id: 'e2eAA_Ss_AdvancedL' }, "Site")),
         r.div({ className: 'form-horizontal esAdmin_settings col-sm-10' },
           Switch({},
@@ -545,6 +551,7 @@ const SettingsPanel = createFactory({
             Route({ path: sr + 'features', render: () => FeatureSettings(ps) }),
             Route({ path: sr + 'embedded-comments', render: () => EmbeddedCommentsSettings(ps) }), // [8UP4QX0]
             Route({ path: sr + 'language', render: () => LanguageSettings(ps) }),
+            Route({ path: sr + 'email', render: () => EmailSettings(ps) }),
             Route({ path: sr + 'site', render: () => AdvancedSettings(ps) })))));
   }
 });
@@ -553,6 +560,16 @@ const SettingsPanel = createFactory({
 
 const LoginAndSignupSettings = createFactory({
   displayName: 'LoginAndSignupSettings',
+
+  getInitialState: function() {
+    return {};
+  },
+
+  componentDidMount: function() {
+    Server.loadIdentityProviders(idps => {
+      this.setState({ idps, idpsConfigJsonText: JSON.stringify(idps, undefined, 2) });
+    })
+  },
 
   render: function() {
     const props = this.props;
@@ -563,7 +580,10 @@ const LoginAndSignupSettings = createFactory({
     const valueOf = (getter: (s: Settings) => any) =>
       firstDefinedOf(getter(editedSettings), getter(currentSettings));
 
+    const enableCustomIdps = valueOf(s => s.enableCustomIdps);
+    const useOnlyCustomIdps = valueOf(s => s.useOnlyCustomIdps);
     const enableSso = valueOf(s => s.enableSso);
+    const enableSsoOrOnlyCustIdps = enableSso || useOnlyCustomIdps;
     const loginRequired = valueOf(s => s.userMustBeAuthenticated);
     const allowSignup = valueOf(s => s.allowSignup);
     const requireVerifiedEmail = valueOf(s => s.requireVerifiedEmail);
@@ -572,8 +592,9 @@ const LoginAndSignupSettings = createFactory({
     const allowEmbeddingFrom = valueOf(s => s.allowEmbeddingFrom);
 
     const canEnableGuestLogin =
-      !valueOf(s => s.userMustBeApproved) && !loginRequired &&
-        valueOf(s => s.allowSignup) && !requireVerifiedEmail && !enableSso;  // && !invite-only (6KWU20)
+            !valueOf(s => s.userMustBeApproved) && !loginRequired &&
+              valueOf(s => s.allowSignup) && !requireVerifiedEmail &&
+              !enableSsoOrOnlyCustIdps;  // && !invite-only (6KWU20)
 
     const missingServerSiteHint = (isConfiguredOnServer: boolean) => isConfiguredOnServer ? '' :
         " Cannot be enabled, because has not been configured server side, " +
@@ -665,7 +686,7 @@ const LoginAndSignupSettings = createFactory({
 
         // If SSO enabled, email addresses must always have been verified, by the external
         // login provider.
-        enableSso || !allowSignup ? null : Setting2(props, {
+        enableSsoOrOnlyCustIdps || !allowSignup ? null : Setting2(props, {
           type: 'checkbox', label: "Require verified email",
           className: 'e_A_Ss_S-RequireVerifiedEmailCB',
           help: "New users must specify an email address, and click an email verification link " +
@@ -687,7 +708,7 @@ const LoginAndSignupSettings = createFactory({
         }),
 
         // With SSO, too complicated to let people start typing, and then redir to external site.
-        enableSso || !allowSignup ? null : Setting2(props, {
+        enableSsoOrOnlyCustIdps || !allowSignup ? null : Setting2(props, {
           type: 'checkbox', label: "May compose before signup",
           className: 'e_A_Ss_S-MayComposeBeforeSignup',
           help: "People may start writing posts before they have signed up. When they try to " +
@@ -707,7 +728,7 @@ const LoginAndSignupSettings = createFactory({
         }),
 
         // With SSO, email must always be verified, when logging in and continuing.
-        enableSso ? null : Setting2(props, {
+        enableSsoOrOnlyCustIdps ? null : Setting2(props, {
           type: 'checkbox', label: "May post before email verified",
           className: 'e_A_Ss_S-MayPostBeforeEmailVerifiedCB',
           help: "New users may login and post messages, before they have clicked an email " +
@@ -743,12 +764,127 @@ const LoginAndSignupSettings = createFactory({
         begForEmailAddress */
 
 
-        // ---- Ways to sign up: Password, Guest
+        // ---- Ways to sign up
 
         r.h2({ className: 'col-sm-offset-3 s_A_Ss_S_Ttl'},
           "Ways to sign up"),
 
+
+        // ---- Ways to sign up: OpenID Connect
+
         enableSso || !allowSignup ? null : Setting2(props, {
+          type: 'checkbox', label: rFragment({},
+              "Your OpenID Connect (OIDC)", r.br(),
+              "or OAuth2"),
+          className: 'e_A_Ss_S-OidcCB',
+          help: "Log in via your own identity provider, " +
+              "e.g. KeyCloak or Azure AD. " +
+              "You can combine this with social login (Gmail, Facebook etc) " +
+              "or email and password login.",
+          disabled: !valueOf(s => s.allowSignup),
+          getter: (s: Settings) => s.enableCustomIdps,
+          update: (newSettings: Settings, target) => {
+            newSettings.enableCustomIdps = target.checked;
+            if (useOnlyCustomIdps) {
+              newSettings.useOnlyCustomIdps = false;
+            }
+          }
+        }),
+
+        enableSso || !allowSignup || !enableCustomIdps ? null : Setting2(props, {
+          type: 'checkbox',
+          label: rFragment({}, r.b({}, "Only"), " your OIDC or OAuth2"),
+          className: 'e_A_Ss_S-OnlyOidcCB',
+          help: rFragment({},
+              "Disables all other ways to sign up. " +
+              //"If you've configured just one custom identity provider, " +
+              //"this means Single Sign-On. " +
+              "You should be logged in via your custom OIDC or OAuth2 already, " +
+              "otherwise you might lock yourself out?", r.br(),
+              r.span({ style: { fontWeight: useOnlyCustomIdps ? 'bold' : undefined }},
+                "If you lock yourself out, go here: ",
+                r.a({ href: location.origin + UrlPaths.AdminLogin }, UrlPaths.AdminLogin))),
+          // disabled: // later: disable unless currently logged in via oidc?
+          getter: (s: Settings) => s.useOnlyCustomIdps,
+          update: (newSettings: Settings, target) => {
+            newSettings.useOnlyCustomIdps = target.checked;
+          }
+        }),
+
+        !enableCustomIdps && !this.state.idps?.length ? null :
+          r.div({ className: 's_A_Ss_S s_A_Ss_S-CuIdpsL col-sm-offset-3'},
+            r.p({}, "Your custom Identity Providers (IDPs):"),
+            r.ol({ className: ' s_CuIdpsL' },
+              this.state.idps?.map((idp: IdentityProviderSecretConf) => {
+                const name = idp.displayName || idp.alias || "No name [TyE702RSG5]";
+                const protoAlias = `${idp.protocol}/${idp.alias}`;
+                return r.li({ className: 's_CuIdpsL_It' },
+                  r.div({},
+                    r.span({ className: 's_CuIdpsL_It_Name' },
+                      name + ': '),
+                    r.span({  className: 's_CuIdpsL_It_Host' },
+                      url_getHost(idp.idpAuthorizationUrl)),
+                    ' ',
+                    r.span({  className: 's_CuIdpsL_It_ProtoAlias' },
+                      protoAlias)),
+                  r.div({ className: 's_CuIdpsL_It_TstLn' },
+                    "Login test link: ",
+                    r.code({}, location.origin + UrlPaths.AuthnRoot + protoAlias),
+                    r.br(),
+                    "You can open an incognito window (Ctrl+Shift+N in Chrome), " +
+                    "and paste that link, and try to login"));
+                })),
+            r.pre({},
+              JSON.stringify(this.state.idps, undefined, 2)),
+            ),
+
+        enableSso || !allowSignup || !enableCustomIdps || this.state.showOidcConfig ? null :
+            Button({ onClick: () => this.setState({ showOidcConfig: true }),
+                  className: 'col-sm-offset-3' },
+              "Configure Identity Providers (IDPs) ..."),
+
+        // CLEAN_UP REFACTOR use Setting2 instead, the  anyChildren param.
+        enableSso || !allowSignup || !enableCustomIdps || !this.state.showOidcConfig ? null :
+            r.div({ className: 's_A_Ss_S s_CuIdpsEdr' },
+              Input({ type: 'textarea', label: rFragment({},
+                  "ODIC or OAuth2 config", r.br(),
+                  "(in JSON, for now)"),
+                labelClassName: 'col-sm-3 s_A_Ss_S s_A_Ss_S-Textarea',
+                wrapperClassName: 'col-sm-9 esAdmin_settings_setting',
+                value: this.state.idpsConfigJsonText,
+                onChange: (event) => this.setState({
+                  savingOidc: null,
+                  idpsConfigJsonText: event.target.value
+                }),
+                help: undefined }),
+              !!this.state.idpConfErr && r.p({ className: 'col-sm-offset-3' },
+                  this.state.idpConfErr),
+              !!this.state.savingOidc && r.p({ className: 'col-sm-offset-3' },
+                  this.state.savingOidc),
+              PrimaryButton({
+                  className: 'col-sm-offset-3',
+                  onClick: () => {
+                    let json;
+                    try {
+                      json = JSON.parse(this.state.idpsConfigJsonText);
+                      this.setState({ savingOidc: "Saving ..." });
+                      Server.upsertIdentityProvider(json, () => {
+                        this.setState({ savingOidc: "Done, saved.", idpConfErr: null });
+                        //this.setState({ showOidcConfig: false });
+                      }, error => {
+                        this.setState({ savingOidc: null, idpConfErr: error });
+                      });
+                    }
+                    catch (ex) {
+                      this.setState({ idpConfErr: `Bad JSON: ${ex.toString()}` });
+                    }
+                  } },
+                "Save")),
+
+
+        // ---- Ways to sign up: Password, Guest
+
+        enableSsoOrOnlyCustIdps || !allowSignup ? null : Setting2(props, {
           type: 'checkbox', label: "Allow creating local accounts",
           className: 'e_A_Ss_S-AllowLoalSignupCB',
           help: "Uncheck to prevent people from creating email + password accounts at this site.",
@@ -759,7 +895,7 @@ const LoginAndSignupSettings = createFactory({
           }
         }),
 
-        enableSso || !allowSignup ? null : Setting2(props, {
+        enableSsoOrOnlyCustIdps || !allowSignup ? null : Setting2(props, {
           type: 'checkbox', label: "Allow anonymous \"login\"", id: 'e2eAllowGuestsCB',
           className: 'e_A_Ss_S-AllowGuestsCB',
           help: "Lets people post comments and create topics, without creating real accounts " +
@@ -776,7 +912,7 @@ const LoginAndSignupSettings = createFactory({
 
         // ---- Ways to sign up: OpenAuth
 
-        enableSso || !allowSignup ? null : Setting2(props, {
+        enableSsoOrOnlyCustIdps || !allowSignup ? null : Setting2(props, {
           type: 'checkbox', label: "Enable Google signup", id: 'e_EnableGoogleLogin',
           className: 'e_A_Ss_S-EnableGoogleCB',
           help: "Lets people sign up and login with their Gmail account." +
@@ -788,7 +924,7 @@ const LoginAndSignupSettings = createFactory({
           }
         }),
 
-        enableSso || !allowSignup ? null : Setting2(props, {
+        enableSsoOrOnlyCustIdps || !allowSignup ? null : Setting2(props, {
           type: 'checkbox', label: "Enable Facebook signup",
           className: 'e_A_Ss_S-EnableFacebookCB',
           help: "Lets people sign up and login with their Facebook account." +
@@ -800,7 +936,7 @@ const LoginAndSignupSettings = createFactory({
           }
         }),
 
-        enableSso || !allowSignup ? null : Setting2(props, {
+        enableSsoOrOnlyCustIdps || !allowSignup ? null : Setting2(props, {
           type: 'checkbox', label: "Enable Twitter signup",
           className: 'e_A_Ss_S-EnableTwitterCB',
           help: "Lets people sign up and login with their Twitter account." +
@@ -812,7 +948,7 @@ const LoginAndSignupSettings = createFactory({
           }
         }),
 
-        enableSso || !allowSignup ? null : Setting2(props, {
+        enableSsoOrOnlyCustIdps || !allowSignup ? null : Setting2(props, {
           type: 'checkbox', label: "Enable GitHub signup",
           className: 'e_A_Ss_S-EnableGitHubCB',
           help: "Lets people sign up and login with their GitHub account." +
@@ -824,7 +960,7 @@ const LoginAndSignupSettings = createFactory({
           }
         }),
 
-        enableSso || !allowSignup ? null : Setting2(props, {
+        enableSsoOrOnlyCustIdps || !allowSignup ? null : Setting2(props, {
           type: 'checkbox', label: "Enable LinkedIn signup",
           className: 'e_A_Ss_S-EnableLinkedInCB',
           help: "Lets people sign up and login with their LinkedIn account." +
@@ -839,12 +975,14 @@ const LoginAndSignupSettings = createFactory({
 
         // ---- Email domain allowlist and blocklist
 
+        // Hide, if SSO enabled or only custom OIDC / OAuth2 allowed
+        // — then, the SSO system determines if allowed or not. [7AKBR25]
+
+        enableSsoOrOnlyCustIdps || !allowSignup ? null : rFragment({},
         r.h2({ className: 'col-sm-offset-3 s_A_Ss_S_Ttl'},
           "Who may sign up?"),
 
-        // Hide, if SSO enabled — then, the SSO system determines if allowed or not. [7AKBR25]
-
-        enableSso || !allowSignup ? null : Setting2(props, {
+        Setting2(props, {
           type: 'textarea', label: "Email domain allowlist", className: 'e_EmailWhitelist',
           help: rFragment({},
             "People may ", r.i({}, "only "),
@@ -856,7 +994,7 @@ const LoginAndSignupSettings = createFactory({
           }
         }),
 
-        enableSso || !allowSignup ? null : Setting2(props, {
+        Setting2(props, {
           type: 'textarea', label: "Email domain blocklist", className: 'e_EmailBlacklist',
           help: rFragment({},
             "People may ", r.i({}, "not "),
@@ -867,12 +1005,25 @@ const LoginAndSignupSettings = createFactory({
             newSettings.emailDomainBlacklist = target.value;
           }
         }),
+        ),
 
 
-        // ---- Single Sign-On
+        // ---- Talyard's Single Sign-On
+
+        // Hide, if only custom OIDC / OAuth2 is to be used. But if both enabled
+        // then show both  (that'd be a bug & impossible! There's this database
+        // constraint: settings_c_custom_idps_xor_sso).
+
+        enableCustomIdps && !enableSso ? null : rFragment({},
 
         r.h2({ className: 'col-sm-offset-3 s_A_Ss_S_Ttl'},
-          "Single Sign-On"),
+          "Single Sign-On, Talkyard's Own"),
+
+        r.p({ className: 'col-sm-offset-3 s_A_Ss_Expl'},
+          "This is Talkyard's custom Single Sign-On protocol. We think it's simpler to" +
+          "understand and integrate with, than OIDC (OpenID Connect). " +
+          "However if your software supports OIDC (being an ID provider), " +
+          "then we think it's better if you use OIDC — see above."),
 
         Setting2(props, {
           type: 'text', label: "Single Sign-On URL",
@@ -939,6 +1090,7 @@ const LoginAndSignupSettings = createFactory({
             newSettings.enableSso = target.checked;
           }
         }),
+        )
         ));
   }
 });
@@ -2177,6 +2329,45 @@ const LanguageSettings = createFactory({
 
 
 
+const EmailSettings = createFactory({
+  displayName: 'EmailSettings',
+
+  render: function() {
+    const props = this.props;
+    //const currentSettings: Settings = props.currentSettings;
+    //const editedSettings: Settings = props.editedSettings;
+    //const defaultSettings: Settings = props.defaultSettings;
+
+    const enableCustomEmailServer =
+        Setting2(props, {
+          type: 'checkbox', label: "Use your own email service",
+          className: 'e_A_Ss_S-OwnEmlCB',
+          help: "Send emails from your server, so people see your sender address.",
+          getter: (s: Settings) => s.enableOwnEmailServer,
+          update: (newSettings: Settings, target) => {
+            newSettings.enableOwnEmailServer = target.checked;
+          }
+        });
+
+    const customEmailServerConfig =
+        Setting2(props, { type: 'textarea', label: "Email server config",
+          help: "Not yet implemented.",
+          placeholder: "??",
+          getter: (s: Settings) => s.ownEmailServerConfig,
+          update: (newSettings: Settings, target) => {
+            newSettings.ownEmailServerConfig = target.value;
+          }
+        });
+
+    return (
+      r.div({},
+        enableCustomEmailServer,
+        customEmailServerConfig));
+  },
+});
+
+
+
 const AdvancedSettings = createFactory({
   displayName: 'AdvancedSettings',
 
@@ -2213,7 +2404,7 @@ const AdvancedSettings = createFactory({
         isBlogCommentsOnly &&
         // If self hosted, one needs to be able to change the adress.
         !seemsSelfHosted() &&
-        location.hash.indexOf('&showAll') === -1;
+        !showAll();
 
     const hosts: Host[] = props.hosts;
     const noCanonicalHostSpecifiedString = " (no address specified)";

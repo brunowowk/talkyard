@@ -71,6 +71,14 @@ https://github.com/Yubico/java-webauthn-server/ — a Java U2F / WebAuthn lib.
 [no-email]:
 Let people create accounts without specifying any email address. Like at Reddit.
 
+[many_emails] [email_privacy]
+Let someone create many accounts with the same email address.
+Also then one cannot try to find out if an account exists,
+by specifying that person's email addr.
+
+[known_verified_email_domains]
+      // + known all-email-addrs-have-been-verified email domains from site settings?
+
 
 [reenable-akismet]:
 For some reason I disabled Akismet (why? when refactoring to save time?). Enable it again.
@@ -125,6 +133,9 @@ Improve sub communities, e.g. selecting a category across all sub communities,
 not only the current one.
 
 [performance]
+Use:  ch.qos.Logback.classic.AsyncAppender, measure req/s bef & aftr.
+Nginx: error_log  debug vs warn.
+
 Performance tests:
  "Capture a timeline trace of your site to help diagnose performance issues."
  https://github.com/GoogleChrome/puppeteer
@@ -337,7 +348,12 @@ LinkedIn likes oEmbed better than OpenGraph:
 iframely = OSS too:  https://github.com/itteco/iframely/tree/master/plugins/domains )
 
 [like-notfs]  [like_vote_notfs]
-Send notifications about getting a Like.
+Done: Send notifications about getting a Like.
+Could also:
+  Select which notifications get sent over email (e.g. excl Like votes & mod tasks).
+  Still visible in username dropdown.
+
+
 
 [refactor-notfs]  DONE, except for re-enabling reconnect.
 Remove Nchan. Use Rust + server-sent-events instead.  NO, just Play and WebSocket now.

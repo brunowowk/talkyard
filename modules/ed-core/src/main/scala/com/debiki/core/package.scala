@@ -22,7 +22,7 @@ import java.{util => ju}
 import org.apache.commons.validator.routines.EmailValidator
 import org.scalactic.{Bad, ErrorMessage, Good, Or}
 import scala.collection.immutable
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable
 import play.api.libs.json.JsObject
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success, Try}
@@ -44,7 +44,7 @@ package object core {
   type U = Unit
   type St = String
   type Bo = Boolean
-  type i8 = Byte // 'I8' is better than 'Byte', so remembers it is signed
+  type i8 = Byte // 'i8' is better than 'Byte', so remembers it is signed
   type i16 = Short
   type u16 = Char
   type i32 = Int
@@ -53,16 +53,24 @@ package object core {
   type f64 = Double
   type ErrMsg = ErrorMessage // = String
   type Opt[+A] = Option[A]
+  val Opt: Option.type = Option
 
-  type Vec[+A] = scala.collection.immutable.Vector[A]
-  val Vec: Vector.type = scala.collection.immutable.Vector
+  type Vec[+A] = Vector[A]
+  val Vec: Vector.type = Vector
 
-  type MutArrBuf[A] = scala.collection.mutable.ArrayBuffer[A]
-  val MutArrBuf: ArrayBuffer.type = scala.collection.mutable.ArrayBuffer
+  // Mutable or immutable — use instead of Seq, so simpler to upgrade to Scala 3
+  // (then, just `Seq` changes from scala.collection.Seq to immutable.Seq).
+  type ColSeq[+A] = collection.Seq[A]
+  // val ColSeq = collection.Seq — the same as immutable.Seq.
+  type ImmSeq[+A] = immutable.Seq[A]
+  val ImmSeq: immutable.Seq.type = immutable.Seq
+
+  type MutArrBuf[A] = mutable.ArrayBuffer[A]
+  val MutArrBuf: mutable.ArrayBuffer.type = mutable.ArrayBuffer
 
 
-  def isDevOrTest: Boolean = Prelude.isDevOrTest
-  def isProd: Boolean = Prelude.isProd
+  def isDevOrTest: Bo = Prelude.isDevOrTest
+  def isProd: Bo = Prelude.isProd
 
 
   type ActionId = Int
@@ -127,6 +135,11 @@ package object core {
   val PermissionAlreadyExistsMinId = 1
 
   type SiteTx = SiteTransaction  // renaming it, wip
+
+  type ServerDefIdpId = String
+  type SiteCustIdpId = Int
+  type IdendityProviderId = SiteCustIdpId  // RENAME to SiteCustIdpId
+
 
   sealed abstract class MarkupLang
   object MarkupLang {
@@ -1033,7 +1046,7 @@ package object core {
     /** There's a unit test.
       */
     def parseLowPostNrsReadBitsetBytes(bytes: Array[Byte]): Set[PostNr] = {
-      val postNrs = ArrayBuffer[PostNr]()
+      val postNrs = MutArrBuf[PostNr]()
       var byteIx = 0
       while (byteIx < bytes.length) {
         val byte = bytes(byteIx)
@@ -1251,7 +1264,7 @@ package object core {
   def AUDIT_LOG = ()      // Should add audit log entry
   def REFACTOR = ()       // The code can be refactored. Also search for "[refactor]".
   def RENAME = ()         // Something ought to be renamed.
-  def MOVE = ()
+  def MOVE = ()           // Move something elsewhere
   def QUICK = ()          // Let's do now soon — won't take long.
   def OPTIMIZE = ()
   def SLOW_QUERY = ()
