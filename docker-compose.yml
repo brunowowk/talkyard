@@ -283,25 +283,23 @@ services:
   #
   # ##### Create a test Talkyard site
   # Run in a shell:
-  #    s/wdio --only manual.2browsers --da --dt
-  # This creates a Talkyard test site, on localhost, and logs you in as
-  # "owen_owner", the site admin, in one browser, and member "memah"
+  #    s/wdio --only manual.2browsers --da --dt --localHostname e2e-test-kc-oidc
+  # This creates a Talkyard test site, address e2e-test-kc-oidc.localhost,
+  # and logs you in as site admin "owen_owner" in one browser, and member "memah"
   # in another browser.
-  # (--da means "debug afterwards" — pauses Webdriverio, instead of exiting.
-  # --dt means use the DevTools protocol, so you won't need Selenium.)
+  # (--da means "debug after" — pauses Webdriverio, instead of closing the browsers.
+  #  --dt means use the DevTools protocol, so you won't need Selenium.)
   #
-  # Copy the Talkyard test site url from the browser address bar,
-  # the url looks like: (as of Aug 2020)
-  #   http://e2e-test-cid-0-0-now-1298.localhost
+  # Look at the Talkyard test site address in the browser address bar, should be:
+  #   http://e2e-test-kc-oidc.localhost
   #
   # ##### Connect Keycloak with Talkyard
   # Change Keycloak's Root URL to point to your Talkyard test site,
-  # plus, append:  '/-/authn/oidc/keycloak_test_alias',
-  # will look like:
-  #   http://e2e-test-cid-0-0-now-1298.localhost/-/authn/oidc/keycloak_test_alias
+  # plus, append:  '/-/authn/oidc/keycloak_test_alias', should be:
+  #   http://e2e-test-kc-oidc.localhost/-/authn/oidc/keycloak_test_alias
   # Set the Redirect URI to the above + '/callback',
   # will look like:
-  #   http://e2e-test-cid-0-0-now-1298.localhost/-/authn/oidc/keycloak_test_alias/callback
+  #   http://e2e-test-kc-oidc.localhost/-/authn/oidc/keycloak_test_alias/callback
   #
   # Click Save.
   # Since you selected 'confidential' above, a tab 'Credentials' will appear
@@ -377,15 +375,52 @@ services:
     environment:
       # Without 'h2', KeyCloak uses internal heuristics that sometimes wants a non-existing
       # MySQL database, blocks for a minute, logs a 3066 lines long error message and exits.
-      DB_VENDOR: 'h2'
+      #DB_VENDOR: 'h2'
+      # BUT see below! ...
+
+      # rdb container instead:  docker run -d --name postgres --net keycloak-network -e POSTGRES_DB=keycloak -e POSTGRES_USER=keycloak -e POSTGRES_PASSWORD=public postgres
+      # docker run --name keycloak --net keycloak-network jboss/keycloak -e DB_USER=keycloak -e DB_PASSWORD=password
+
       KEYCLOAK_USER: 'admin'
       KEYCLOAK_PASSWORD: 'pub-admin'
       KEYCLOAK_HTTP_PORT: '8113'
       KEYCLOAK_HTTPS_PORT: '8553'
+      KEYCLOAK_IMPORT: '/tmp/ty_test_realm.keycloak-export.json'
+
+      # ... exp-imp needs pgsql?
+      # $ docker-compose exec rdb psql postgres postgres  -c "create user keycloak with password 'public';"
+      # CREATE ROLE
+      # $ docker-compose exec rdb psql postgres postgres  -c 'create database keycloak owner keycloak;' 
+      # CREATE DATABASE
+      DB_VENDOR: 'postgres'
+      DB_ADDR: 'rdb'
+      DB_USER: 'keycloak'
+      DB_PASSWORD: 'public'
+    volumes:
+      # For exporting realms.
+      - ./volumes/keycloak-tmp/:/tmp/
+      # An already exported test realm.
+      - ./tests/e2e/resources/ty_test_realm.keycloak-export.json:/tmp/ty_test_realm.keycloak-export.json
     networks:
       internal_net:
         ipv4_address: ${INTERNAL_NET_KEYCLOAK_IP}
 
+    # kc exp like so:
+
+    # docker-compose exec  keycloak.localhost  /opt/jboss/keycloak/bin/standalone.sh -Djboss.socket.binding.port-offset=100 -Dkeycloak.migration.action=export -Dkeycloak.migration.provider=singleFile  -Dkeycloak.migration.realmName=ty_realm  -Dkeycloak.migration.usersExportStrategy=REALM_FILE  -Dkeycloak.migration.file=/tmp/ty_realm.keycloak-export.json 
+
+    # but kc bug, NPE if realm doesn't exist: (FATAL below)
+    # 15:55:44,599 INFO  [org.hibernate.type.BasicTypeRegistry] (ServerService Thread Pool -- 60) HHH000270: Type registration [java.util.UUID] overrides previous : org.hibernate.type.UUIDBinaryType@33545aee
+    # 15:55:44,606 INFO  [org.hibernate.envers.boot.internal.EnversServiceImpl] (ServerService Thread Pool -- 60) Envers integration enabled? : true
+    # 15:55:45,265 INFO  [org.hibernate.orm.beans] (ServerService Thread Pool -- 60) HHH10005002: No explicit CDI BeanManager reference was passed to Hibernate, but CDI is available on the Hibernate ClassLoader.
+    # 15:55:45,343 INFO  [org.hibernate.validator.internal.util.Version] (ServerService Thread Pool -- 60) HV000001: Hibernate Validator 6.0.18.Final
+    # 15:55:46,877 INFO  [org.hibernate.hql.internal.QueryTranslatorFactoryInitiator] (ServerService Thread Pool -- 60) HHH000397: Using ASTQueryTranslatorFactory
+    # 15:55:47,862 INFO  [org.keycloak.services] (ServerService Thread Pool -- 60) KC-SERVICES0034: Export of realm 'ty_realm' requested.
+    # 15:55:47,862 INFO  [org.keycloak.exportimport.singlefile.SingleFileExportProvider] (ServerService Thread Pool -- 60) Exporting realm 'ty_realm' into file /tmp/ty_realm.keycloak-export.json
+    # 15:55:47,884 FATAL [org.keycloak.services] (ServerService Thread Pool -- 60) java.lang.NullPointerException
+
+    # Works: (need to terminate Keycloak with Ctrl+C)
+    # docker-compose exec  keycloak.localhost  /opt/jboss/keycloak/bin/standalone.sh -Djboss.socket.binding.port-offset=100 -Dkeycloak.migration.action=export -Dkeycloak.migration.provider=singleFile  -Dkeycloak.migration.realmName=ty_test_realm  -Dkeycloak.migration.usersExportStrategy=REALM_FILE  -Dkeycloak.migration.file=/tmp/ty_test_realm.keycloak-export.json
 
   # Would like to remove, but is incl in talkyard-prod-one's Compose file already,
   # and would cause errors, if removed here, and people then upgrade? (because new version
