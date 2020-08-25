@@ -105,21 +105,27 @@ class SettingsController @Inject()(cc: ControllerComponents, edContext: EdContex
   def upsertOidcConfig: Action[JsValue] = AdminPostJsonAction(maxBytes = 2000) {
           request: JsonPostRequest =>
     import request.{dao, body}
-    val idp = SitePatchParser(context).readIdentityProviderorBad(body) getOrIfBad { problem =>
-      throwBadRequest("TyE703RKT4j7", s"Bad IDP json: $problem")
+    val idpsJsonArr = body.asOpt[JsArray].getOrThrowBadRequest(
+          "TyE406WKTDW2", "I want a json array with IDP configs")
+    val parser = SitePatchParser(context)
+    val idps: Seq[IdentityProvider] = idpsJsonArr.value map { idp =>
+      parser.readIdentityProviderorBad(idp) getOrIfBad { problem =>
+        throwBadRequest("TyE703RKT4j7", s"Bad IDP json: $problem")
+      }
     }
     dao.writeTx { (tx, _) =>
-      tx.upsertIdentityProvider(idp)
+      idps foreach tx.upsertIdentityProvider
+      // Later: Uncache only those that got changed.
+      dao.uncacheAuthnServices(idps)
     }
     loadOidcConfigImpl(request, inclSecret = true)
   }
 
 
   private def loadOidcConfigImpl(request: DebikiRequest[_], inclSecret: Boolean): p_Result = {
-    val idp = request.dao.readTx(_.loadAllIdentityProviders()).headOption getOrElse {
-      return OkSafeJson(JsNull)
-    }
-    val json = JsX.JsIdentityProviderSecretConf(idp)
+    val idps = request.dao.readTx(_.loadAllIdentityProviders())
+          .sortBy(idp => idp.gui_order_c getOrElse (idp.id_c + 1000 * 1000))
+    val json = JsArray(idps map JsX.JsIdentityProviderSecretConf)
     OkSafeJson(json)
   }
 

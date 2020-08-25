@@ -365,22 +365,23 @@ export const LoginDialogContent = createClassAndFactory({
 
     const ss = store.settings;
 
-    const customIdp: IdentityProviderPubFields | U = ss.customIdps && ss.customIdps[0];
-    const customOidcBtn = !customIdp ? null :
-        // Currently just one custom IDP.
+    const customIdps: IdentityProviderPubFields[] = ss.customIdps || [];
+    const customOidcBtns = customIdps.map(idp =>
         OpenAuthButton({
-            ...makeOauthProps('icon-user', customIdp.displayName || customIdp.alias),
-            idp: customIdp });
+            ...makeOauthProps('icon-user', idp.displayName || idp.alias),
+            key: idp.alias,
+            idp }));
 
     // (Place any custom IDPs last by default — because if other authn methods enabled,
     // then, they're probably for the company's customers/users, and they're typically
     // more people than those in the company, so make things simple for them: show
     // "their" buttons first.)
-    const customIdpBtnFirst = !customIdp ? false :
-            customIdp.guiOrder < 0;  // undef < 0  is false
+    //const customIdpBtnFirst = !customIdp ? false :
+    //        customIdp.guiOrder < 0;  // undef < 0  is false
 
-    const anyOpenAuth = customOidcBtn || ss.enableGoogleLogin || ss.enableFacebookLogin ||
-        ss.enableTwitterLogin || ss.enableGitHubLogin || ss.enableLinkedInLogin;
+    const anyOpenAuth = customIdps.length || ss.enableGoogleLogin ||
+        ss.enableFacebookLogin || ss.enableTwitterLogin || ss.enableGitHubLogin ||
+        ss.enableLinkedInLogin;
 
     let content;
     if (settings.enableSso) {
@@ -399,7 +400,7 @@ export const LoginDialogContent = createClassAndFactory({
             // Facebook's brand guidelines.
             t.ld.ContinueWithDots),
           r.div({ id: 'dw-lgi-other-sites' },
-            customIdpBtnFirst && customOidcBtn,
+            //customIdpBtnFirst && customOidcBtn,
             !ss.enableGoogleLogin ? null :
                 OpenAuthButton(makeOauthProps('icon-google', 'Google')),
             !ss.enableFacebookLogin ? null :
@@ -412,7 +413,8 @@ export const LoginDialogContent = createClassAndFactory({
                 OpenAuthButton(makeOauthProps('icon-github-circled', 'GitHub')),
             !ss.enableLinkedInLogin ? null :
                 OpenAuthButton(makeOauthProps('icon-linkedin', 'LinkedIn')),
-            !customIdpBtnFirst && customOidcBtn,
+            //!customIdpBtnFirst && customOidcBtn,
+            customOidcBtns,
             // SMALLER_BUNDLE  could remove the Yahoo icon?
             // OpenID 1.0 since long gone, so skip:  icon-yahoo Yahoo!
             )),
@@ -492,7 +494,8 @@ const OpenAuthButton = createClassAndFactory({
   },
   render: function() {
     return (
-      Button({ id: this.props.id, className: this.props.iconClass, onClick: this.onClick },
+      Button({ id: this.props.id, key: this.props.key,
+          className: this.props.iconClass, onClick: this.onClick },
         this.props.content || this.props.provider));
   }
 });

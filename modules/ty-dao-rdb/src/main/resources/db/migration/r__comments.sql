@@ -5,6 +5,55 @@
 
 
 --======================================================================
+--  identity_providers_t
+--======================================================================
+
+------------------------------------------------------------------------
+comment on table  identity_providers_t  is $_$
+
+OIDC and OAuth2 providers, e.g. a company's private Keycloak server.
+$_$;
+
+
+------------------------------------------------------------------------
+comment on column  identity_providers_t.protocol_c  is $_$
+
+Lowercase, because is lowercase in the url path. Is incl in the primary
+key, so one can change from say  /-/authn/oauth2/some-alias to
+/-/authn/oidc/some-alias without having to change the alias (or disable
+the old authn for a short while).
+$_$;
+
+
+------------------------------------------------------------------------
+comment on column  identity_providers_t.alias_c  is $_$
+
+Alnum lowercase, because appears in urls.
+$_$;
+
+
+------------------------------------------------------------------------
+comment on column  identity_providers_t.gui_order_c  is $_$
+
+When logging in, providers with lower numbers are shown first.
+(If one has configured more than one provider.)
+$_$;
+
+
+------------------------------------------------------------------------
+comment on column  identity_providers_t.sync_mode_c  is $_$
+
+What to do, when logging in, if there's already a user in the Ty database
+with the same email address, or the same external identity id.
+E.g. just login, don't sync. Or overwrte fields in the Ty database,
+maybe even update the email address.'
+$_$;
+
+
+------------------------------------------------------------------------
+
+
+--======================================================================
 --  links_t
 --======================================================================
 

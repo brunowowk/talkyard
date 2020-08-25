@@ -1211,8 +1211,7 @@ object JsonMaker {
       "enableInstagramLogin" -> settings.enableInstagramLogin)
 
     if (customIdps.nonEmpty) {
-      // Currently can be just one. [many_cu_idp]
-      json += "customIdps" -> Json.arr(JsIdentityProviderPubFields(customIdps.head))
+      json += "customIdps" -> JsArray(customIdps map JsIdentityProviderPubFields)
     }
 
     val D = AllSettings.makeDefault(globals)
