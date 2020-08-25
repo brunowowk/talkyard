@@ -144,6 +144,7 @@ class MemCache(val siteId: SiteId, val cache: DaoMemCache, mostMetrics: MostMetr
         key: MemCacheKey,
         ifFound: => Unit = {},
         orCacheAndReturn: => Option[A] = null,
+        expireAfterSeconds: Option[Int] = None,
         metric: CacheMetric = null,
         ignoreSiteCacheVersion: Boolean = false)(
         implicit classTag: ClassTag[A]): Option[A] = time(metric) { hitMeter =>

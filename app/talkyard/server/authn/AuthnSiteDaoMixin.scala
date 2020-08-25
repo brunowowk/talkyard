@@ -30,19 +30,20 @@ trait AuthnSiteDaoMixin {
   self: SiteDao =>
 
 
-  def uncacheAuthnServices(): Unit = {
+  def uncacheAuthnServices(idpsToUncache: Seq[IdentityProvider]): Unit = {
+    // Later: Uncache only idpsToUncache (both by id, and by protocol + alias).
     memCache.remove(authnServicesKey)
   }
 
 
-  def getAuthnServices(origin: String, idp: IdentityProvider,
+  def getAuthnService(origin: String, idp: IdentityProvider,
           mayCreate: Boolean = true): Option[s_OAuth20Service] = {
 
-    // For now, just one custom IDP per site [many_cu_idp]. If it gets changed,
-    // then delete & replace the old one.
     val callbackUrl = origin + s"/-/authn/${idp.protocol_c}/${idp.alias_c}/callback"
     val scopes = idp.idp_scopes_c getOrElse "openid"  // or don't set if absent?
 
+    // For now: Just one IDP. (If >= 2 used at the same time, one would get
+    // uncached, login would fail.)
     val service = memCache.lookup(
           authnServicesKey,
           orCacheAndReturn = Some {
@@ -52,7 +53,9 @@ trait AuthnSiteDaoMixin {
                   .callback(callbackUrl)
                   .debug()
                   .build(TyOidcScribeJavaApi20(idp))
-          }).get
+          },
+          expireAfterSeconds = Some(3600)  // unimpl though — need a 2nd Coffeine cache? [mem_cache_exp_secs]
+          ).get
 
     // It's the right IDP?
     if (service.getDefaultScope != scopes
@@ -61,11 +64,11 @@ trait AuthnSiteDaoMixin {
         || service.getApiSecret != idp.idp_client_secret_c) {
       // It's the wrong. An admin recently changed OIDC settings?
       // Remove the old, create a new.
-      uncacheAuthnServices()
+      uncacheAuthnServices(Seq(idp))
       if (!mayCreate)
         return None // no eternal recursion
 
-      return getAuthnServices(origin, idp, mayCreate = false)
+      return getAuthnService(origin, idp, mayCreate = false)
     }
 
     Some(service)

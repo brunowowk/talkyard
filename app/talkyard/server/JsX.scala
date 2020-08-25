@@ -805,7 +805,8 @@ object JsX {
     */
   def JsIdentityProviderPubFields(idp: IdentityProvider): JsObject = {
     Json.obj(
-      "id" -> idp.id_c,
+      // "id" — no. Might leak info about how many providers have been configured.
+      // (Maybe there are some inactive, for example.)
       "protocol" -> idp.protocol_c,
       "alias" -> idp.alias_c,
       "enabled" -> idp.enabled_c,
@@ -818,6 +819,7 @@ object JsX {
   def JsIdentityProviderSecretConf(idp: IdentityProvider): JsObject = {
     val pubFields = JsIdentityProviderPubFields(idp)
     pubFields ++ Json.obj(
+        "id" -> idp.id_c,
         "trustVerifiedEmail" -> idp.trust_verified_email_c,
         "linkAccountNoLogin" -> idp.link_account_no_login_c,  // = readBoolean(jsObj, ),
         "syncMode" -> idp.sync_mode_c,  // = readInt(jsObj, ),
