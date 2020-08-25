@@ -562,7 +562,7 @@ const LoginAndSignupSettings = createFactory({
 
   componentDidMount: function() {
     Server.loadIdentityProviders(idps => {
-      this.setState({ idps });
+      this.setState({ idps, idpsConfigJsonText: JSON.stringify(idps, undefined, 2) });
     })
   },
 
@@ -577,6 +577,7 @@ const LoginAndSignupSettings = createFactory({
 
     const enableSso = valueOf(s => s.enableSso);
     const enableOidc = valueOf(s => s.enableOidc);
+    const onlyOidc = valueOf(s => s.enableOidc);
     const loginRequired = valueOf(s => s.userMustBeAuthenticated);
     const allowSignup = valueOf(s => s.allowSignup);
     const requireVerifiedEmail = valueOf(s => s.requireVerifiedEmail);
@@ -792,10 +793,11 @@ const LoginAndSignupSettings = createFactory({
           }
         }),
 
-        !this.state.idps?.length ? null : r.div({},
-          r.p({}, "Your custom Identity Providers (IDP:s):"),
+        !enableOidc && !this.state.idps?.length ? null : r.div({},
+          r.p({}, "Your custom Identity Providers (IDPs):"),
           r.pre({},
-            this.state.idps.map(idp => JSON.stringify(idp, undefined, 2))),
+            JSON.stringify(this.state.idps, undefined, 2),
+            )//this.state.idps?.map(idp => JSON.stringify(idp, undefined, 2))),  .map  not a fn
           ),
 
         enableSso || !allowSignup || !enableOidc || this.state.showOidcConfig ? null :
@@ -807,16 +809,15 @@ const LoginAndSignupSettings = createFactory({
             r.div({ className: 'col-sm-offset-3' },
               Input({ type: 'textarea', label: "ODIC config, in json for now",
                 labelClassName: 'col-xs-2', wrapperClassName: 'col-xs-10',
-                value: this.state.oidcConfigText,
-                onChange: (event) => this.setState({ oidcConfigText: event.target.value }),
+                value: this.state.idpsConfigJsonText,
+                onChange: (event) => this.setState({ idpsConfigJsonText: event.target.value }),
                 help: undefined }),
               !!this.state.idpConfErr && r.p({}, this.state.idpConfErr),
               !!this.state.savingOidc && r.p({}, this.state.savingOidc),
               PrimaryButton({ onClick: () => {
-                    const jsonText = this.state.oidcConfigText;
                     let json;
                     try {
-                      json = JSON.parse(jsonText);
+                      json = JSON.parse(this.state.idpsConfigJsonText);
                       this.setState({ savingOidc: "Saving ..." });
                       Server.upsertIdentityProvider(json, () => {
                         this.setState({ savingOidc: "Done, saved.", idpConfErr: null });
@@ -957,7 +958,13 @@ const LoginAndSignupSettings = createFactory({
         // ---- Single Sign-On
 
         r.h2({ className: 'col-sm-offset-3 s_A_Ss_S_Ttl'},
-          "Single Sign-On"),
+          "Single Sign-On, Talkyard's Own"),
+
+        r.p({ className: 'col-sm-offset-3 s_A_Ss_Expl'},
+          "This is Talkyard's custom Single Sign-On protocol. We think it's simpler to" +
+          "understand and integrate with, than OIDC (OpenID Connect). " +
+          "However if your software supports OIDC (being an ID provider), " +
+          "then we think it's better if you use OIDC — see above."),
 
         Setting2(props, {
           type: 'text', label: "Single Sign-On URL",

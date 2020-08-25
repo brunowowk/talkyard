@@ -129,6 +129,7 @@ class SiteDao(
   import SiteDao._
 
   // Could be protected instead? Then need to move parts of ApiV0Controller to inside the Dao.
+  // Need more caches? E.g. one that expires keys after 1 hour, say [mem_cache_exp_secs].
   lazy val memCache = new MemCache(siteId, cache, globals.mostMetrics)
 
   lazy val redisCache = new RedisCache(siteId, redisClient, context.globals.now)

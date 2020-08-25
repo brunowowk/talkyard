@@ -20,6 +20,7 @@ package controllers
 import com.debiki.core._
 import com.debiki.core.Prelude._
 import com.github.benmanes.caffeine
+import com.github.scribejava.core.oauth.{OAuth20Service => s_OAuth20Service}
 import com.github.scribejava.core.model.{OAuth2AccessToken => s_OAuth2AccessToken, OAuth2AccessTokenErrorResponse => s_OAuth2AccessTokenErrorResponse, OAuthAsyncRequestCallback => s_OAuthAsyncRequestCallback, OAuthRequest => s_OAuthRequest, Response => s_Response, Verb => s_Verb}
 import com.mohiva.play.silhouette
 import com.mohiva.play.silhouette.api.util.HTTPLayer
@@ -157,7 +158,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
     throwForbiddenIf(!idp.enabled_c, "TyEIDPDISBLD",
           s"Identity provider $providerAlias, protocol $protocol, is disabled")
 
-    val service = dao.getAuthnServices(request.origin, idp) getOrElse {
+    val service: s_OAuth20Service = dao.getAuthnService(request.origin, idp) getOrElse {
       throwInternalError("TyEMAKEIDPSVC01",
             s"s$siteId: Cannot get/create ScribeJava service for '$providerAlias'")
     }
@@ -189,15 +190,18 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
     * @return
     */
   def authnCallback(protocol: String, providerAlias: String,
-          state: String, session_state: String, code: String): Action[Unit]
+          state: String, session_state: Option[String], code: String): Action[Unit]
           = AsyncGetActionIsLogin { request =>
 
     import request.{dao, siteId}
 
     // !! check the state !! xsrf
-    System.out.println(s"State: $session_state \n\nCode: $code\n\n")
+    System.out.println(s"\n\nState: $state")
+    System.out.println(s"Code: Code: $code")
+    System.out.println(s"Session state: $session_state\n\n")
 
-    val idp = request.dao.getIdentityProviderByAlias(protocol, providerAlias) getOrElse {
+    val idp: IdentityProvider = request.dao.getIdentityProviderByAlias(
+          protocol, providerAlias) getOrElse {
       // if  is login origin   fine, use config file default login settings
       // else
       //   return forbidden
@@ -206,7 +210,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
             s"Bad protocol: '$protocol' or IDP provider alias: '$providerAlias'")
     }
 
-    val service = dao.getAuthnServices(request.origin, idp) getOrElse {
+    val service: s_OAuth20Service = dao.getAuthnService(request.origin, idp) getOrElse {
       throwInternalError("TyEMAKEIDPSVC02",
             s"s$siteId: Cannot get/create ScribeJava service for '$providerAlias'")
     }
