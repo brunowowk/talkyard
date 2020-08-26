@@ -23,6 +23,7 @@ import com.github.scribejava.core.builder.api.{DefaultApi20 => s_DefaultApi20}
 import com.github.scribejava.core.extractors.{TokenExtractor => s_TokenExtractor}
 import com.github.scribejava.core.model.{OAuth2AccessToken => s_OAuth2AccessToken}
 import com.github.scribejava.apis.openid.{OpenIdJsonTokenExtractor => s_OpenIdJsonTokenExtractor}
+import com.github.scribejava.core.oauth2.clientauthentication.{ClientAuthentication => s_ClientAuthentication, HttpBasicAuthenticationScheme => s_HttpBasicAuthenticationScheme, RequestBodyAuthenticationScheme => s_RequestBodyAuthenticationScheme}
 
 
 
@@ -37,6 +38,18 @@ private case class TyOidcScribeJavaApi20(idp: IdentityProvider) extends s_Defaul
 
   override def getAccessTokenExtractor: s_TokenExtractor[s_OAuth2AccessToken] =
     s_OpenIdJsonTokenExtractor.instance
+
+  override def getClientAuthentication: s_ClientAuthentication = {
+    // See:  https://openid.net/specs/openid-connect-core-1_0.html#ClientAuthentication
+    // There's client_secret_post, which includes in a form-data encoded request body:
+    // >  ...&client_id=...&client_secret=...
+    s_RequestBodyAuthenticationScheme.instance()
+    // There's:  client_secret_basic, uses Basic Auth:
+    //s_HttpBasicAuthenticationScheme.instance()
+    // And also: client_secret_jwt, relies on HMAC SHA.
+    // And: private_key_jwt,
+    // And: none (for Implicit Flow and public clients).
+  }
 
   /*
   val realmName = "talkyard_keycloak_test_realm"
