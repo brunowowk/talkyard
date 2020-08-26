@@ -158,14 +158,24 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
     throwForbiddenIf(!idp.enabled_c, "TyEIDPDISBLD",
           s"Identity provider $providerAlias, protocol $protocol, is disabled")
 
-    val service: s_OAuth20Service = dao.getAuthnService(request.origin, idp) getOrElse {
+    val origin =
+          if (Globals.isProd || request.isDevTestToToLocalhost) {
+            request.origin
+          }
+          else {
+            // We're testing authn against an external service?
+            // For now, pretend we use https.
+            request.origin.replaceAllLiterally("http:", "https:")
+          }
+
+    val authnService: s_OAuth20Service = dao.getAuthnService(origin, idp) getOrElse {
       throwInternalError("TyEMAKEIDPSVC01",
             s"s$siteId: Cannot get/create ScribeJava service for '$providerAlias'")
     }
 
     // Redirect the browser to the OAuth2 auth endpoint, to login over there.
     val state = "state_TODO_random"
-    val authorizationUrl: String = service.createAuthorizationUrlBuilder()
+    val authorizationUrl: String = authnService.createAuthorizationUrlBuilder()
           .state(state)
           //.additionalParams(... IDP specific &query=params ...)
           .build()
@@ -186,8 +196,10 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
     *  in mind, from the IDP:s point of view. And (?) if Ty tells the IDP that
     *  the user has logged out, then the IDP can log the user out from other
     *  services (other than Ty) managed by the IDP too  ?
-    * @param code — send to the IDP to get back an access token.
-    * @return
+    * @param code — the authorization code, a temporary code to send
+    *  to the OAuth2 server, to get back an access token.
+    * @return Redirects the browser to some Talkyard page, or possibly
+    *  embedding website with embedded comments / an embedded Ty forum.
     */
   def authnCallback(protocol: String, providerAlias: String,
           state: String, session_state: Option[String], code: String): Action[Unit]
@@ -210,15 +222,45 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
             s"Bad protocol: '$protocol' or IDP provider alias: '$providerAlias'")
     }
 
-    val service: s_OAuth20Service = dao.getAuthnService(request.origin, idp) getOrElse {
+    val origin =
+          if (Globals.isProd || request.isDevTestToToLocalhost) {
+            request.origin
+          }
+          else {
+            // We're testing authn against an external service?
+            // For now, pretend we use https.
+            request.origin.replaceAllLiterally("http:", "https:")
+          }
+
+    // ----- Access token request
+
+    // We just got back `code`, a temporary authorization code, from the auth
+    // server, via the query string in the browsers request, now when
+    // the browser got redirected back to Ty.
+    // All we can do with this temp code, is to send it to the auth server,
+    // to get an access token.  (Later, we'll use the access token
+    // to retrieve user info from the auth server.)
+    //
+    // The reason for this "extra" temp code step, is that `code` is seen by
+    // the browser / end-user-app, and possibly intermediate infrastructure,
+    // when the browser is redirected back to this Ty server (the `code`
+    // is in the URL). So, it might get intercepted by an attacker.
+    //
+    // Therefore, the OAuth2 code flow requires the Ty server to send
+    // the code together with the IDP client secret to the auth server,
+    // in a separate "backchannel" request, to get the real access token.
+    //
+    // See https://openid.net/specs/openid-connect-core-1_0.html#TokenRequest
+    // and https://www.oauth.com/oauth2-servers/access-tokens/authorization-code-request/
+
+    val authnService: s_OAuth20Service = dao.getAuthnService(origin, idp) getOrElse {
       throwInternalError("TyEMAKEIDPSVC02",
             s"s$siteId: Cannot get/create ScribeJava service for '$providerAlias'")
     }
 
     val accessTokenPromise = Promise[s_OAuth2AccessToken]()
-    val userInfoPromise = Promise[s_Response]()
 
-    service.getAccessToken(code, new s_OAuthAsyncRequestCallback[s_OAuth2AccessToken] {
+    authnService.getAccessToken(code, new s_OAuthAsyncRequestCallback[s_OAuth2AccessToken] {
       override def onCompleted(token: s_OAuth2AccessToken): Unit = {
         accessTokenPromise.success(token)
       }
@@ -227,39 +269,67 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
       }
     })
 
+    val userInfoPromise = Promise[s_Response]()
+
     accessTokenPromise.future.onComplete({
-      case Failure(throwable: Throwable) => throwable match {
-        case ex: s_OAuth2AccessTokenErrorResponse =>
-          Future.successful(ForbiddenResult("TyEOIDCTOKENRSP",
-                s"Error response from OIDC token endpoint: ${ex.toString}"))
-        case ex @ (_: InterruptedException | _: j_ExecutionException | _: j_IOException) =>
-          Future.successful(InternalErrorResult("TyEOIDCTOKENREQ",
-                s"Error requesting OIDC token: ${ex.toString}"))
-        case ex: Exception =>
-          Future.successful(InternalErrorResult(
-                "TyEOIDCTKNRQUNK",
-                s"Unknown error requesting OIDC token: ${ex.toString}"))
-      }
+      case Failure(throwable: Throwable) =>
+        val resultEx = throwable match {
+          case ex @ (_: InterruptedException | _: j_ExecutionException | _: j_IOException) =>
+            // We din't even get a response!
+            ResultException(InternalErrorResult("TyEACSTKNREQ",
+                  s"Error requesting access token: ${ex.toString}"))
+          case ex: s_OAuth2AccessTokenErrorResponse =>
+            // We got an Error response.
+            ResultException(ForbiddenResult("TyEACSTKNRSP",
+                  s"Error response from access token endpoint: ${ex.toString}"))
+          case ex: Exception =>
+            ResultException(InternalErrorResult("TyEACSTKNUNK",
+                  s"Unknown error requesting access token: ${ex.toString}"))
+        }
+        // Pass our response on to userInfoPromise — it replies to the browser.
+        userInfoPromise.failure(resultEx)
 
-      case Success(oauthAccessToken: s_OAuth2AccessToken) =>
-        val userInfoRequest = new s_OAuthRequest(s_Verb.GET, idp.idp_user_info_url_c)
-        service.signRequest(oauthAccessToken, userInfoRequest)
-
-        service.execute(userInfoRequest, new s_OAuthAsyncRequestCallback[s_Response] {
-          override def onCompleted(response: s_Response): Unit = {
-            userInfoPromise.success(response)
-          }
-          override def onThrowable(t: Throwable): Unit = {
-            userInfoPromise.failure(t)
-          }
-        })
+      case Success(accessToken: s_OAuth2AccessToken) =>
+        // Continue below.
+        requestUserInfo(accessToken)
     })
+
+
+    // ----- User info request
+
+    // Now we have the access token (hopefully), and with it we can do
+    // anything we requested in the  &scope=...  parameter in the initial
+    // browser auth redirect to the auth server, and that the user accepted.
+    //
+    // All we want to do, though, is to fetch some user info data.
+    // So, we'll call the user info endpoint.  And we'll include the access
+    // token, so the auth server won't just reply Forbidden.
+
+    def requestUserInfo(accessToken: s_OAuth2AccessToken) {
+      val userInfoRequest = new s_OAuthRequest(s_Verb.GET, idp.idp_user_info_url_c)
+      authnService.signRequest(accessToken, userInfoRequest)
+
+      authnService.execute(userInfoRequest, new s_OAuthAsyncRequestCallback[s_Response] {
+        override def onCompleted(response: s_Response): Unit = {
+          userInfoPromise.success(response)
+        }
+        override def onThrowable(t: Throwable): Unit = {
+          userInfoPromise.failure(t)
+        }
+      })
+    }
 
     val futureResponseToBrowser = userInfoPromise.future.transform {
       case Failure(throwable: Throwable) => throwable match {
+        case ResultException(response) =>
+          // This happens if the access token request failed, above.
+          Success(response)
         case ex @ (_: InterruptedException | _: j_ExecutionException | _: j_IOException) =>
           Success(InternalErrorResult(
-                "TyEOIDCTOKENREQ", s"Error requesting OIDC token: ${ex.toString}"))
+                "TyEOIDCUSRREQ", s"Error requesting user info: ${ex.toString}"))
+        case ex =>
+          Success(InternalErrorResult(
+                "TyEOIDCUSRUNK", s"Unknown error requesting user info: ${ex.toString}"))
       }
 
       case Success(response: s_Response) =>
@@ -268,13 +338,15 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
         lazy val randVal = nextRandomString()
 
         val result = if (httpStatusCode < 200 || 299 < httpStatusCode) {
-          logger.warn(i"""Weird status code from userinfo endpoint: $httpStatusCode,
+          logger.warn(i"""Bad status code from OIDC/OAuth2 userinfo endpoint: ${
+                  httpStatusCode},
               |Error id: '$randVal'
               |Provider: $providerAlias
-              |Response body:
+              |Response body: -----------------------
               |$body
+              |--------------------------------------
               |""")
-          InternalErrorResult("TyEOIDCUSRINFRSP", o"""Unexpected status code:
+          InternalErrorResult("TyEOIDCUSRRSP", o"""Unexpected status code:
                 $httpStatusCode, see logs for details, search for '$randVal'""")
         }
         else {
@@ -318,7 +390,9 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
 
 
 
-  // ======= OLD with Silhouette ============
+  // ======================================================================
+  //   Old, with Silhouette   =============================================
+  // ======================================================================
 
 
   def startAuthentication(providerName: String, returnToUrl: String): Action[Unit] =
