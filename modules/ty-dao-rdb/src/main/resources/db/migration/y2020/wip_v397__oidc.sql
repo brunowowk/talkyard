@@ -5,16 +5,19 @@ create or replace function trim_all(text character varying) returns boolean
     as $_$
 begin
     -- There's: Related Unicode characters without White_Space property,
+    -- but that doesn't make sense at the very the beginning or end of some text.
     -- see:
-    -- https://en.wikipedia.org/wiki/Whitespace_character:
-    -- https://stackoverflow.com/a/22701212/694469.
+    --   https://en.wikipedia.org/wiki/Whitespace_character:
+    --   https://stackoverflow.com/a/22701212/694469.
     -- E.g. Mongolian vowel separator, zero width space, word joiner.
+    -- So, \s to trim all whitespace, plus \u... to trim those extra chars.
     return regexp_replace(text,
             '^[\s\u180e\u200b\u200c\u200d\u2060\ufeff]+' ||
             '|' ||
             '[\s\u180e\u200b\u200c\u200d\u2060\ufeff]+$', '', 'g');
 end;
 $_$;
+
 
 create table identity_providers_t(
   site_id_c int not null,
