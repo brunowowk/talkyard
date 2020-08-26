@@ -35,6 +35,9 @@ class EdController(cc: ControllerComponents, val context: EdContext)
   def AsyncGetActionIsLogin(f: GetRequest => Future[Result]): mvc.Action[Unit] =
     PlainApiAction(cc.parsers.empty, NoRateLimits, isLogin = true).async(f)
 
+  def AsyncGetActionIsLoginRateLimited(f: GetRequest => Future[Result]): mvc.Action[Unit] =
+    PlainApiAction(cc.parsers.empty, RateLimits.Login, isLogin = true).async(f)
+
   def AsyncGetActionRateLimited(rateLimits: RateLimits)(f: GetRequest => Future[Result])
         : mvc.Action[Unit] =
     PlainApiAction(cc.parsers.empty, rateLimits).async(f)

@@ -48,6 +48,16 @@ import scala.util.{Failure, Success}
 import talkyard.server.{ProdConfFilePath, TyLogging}
 
 
+
+case class OAuth2StateStruct(
+  stateStringDebug: String,
+  returnToUrl: String,
+  browserXsrfToken: String,
+  createdAt: When,
+  useCount: java.util.concurrent.atomic.AtomicInteger)
+
+
+
 /** OpenAuth 1 and 2 login, provided by Silhouette, e.g. for Google, Facebook and Twitter.
   *
   * This class is a bit complicated, because it supports logging in at site X
@@ -100,6 +110,14 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
     .expireAfterWrite(65, java.util.concurrent.TimeUnit.MINUTES)
     .build().asInstanceOf[caffeine.cache.Cache[String, OpenAuthDetails]]
 
+  // Maps OAuth2 state to (created-at, return-to-URL, use-count).
+  // And if one attempts to use the state after (
+  private val oauth2StateCache = caffeine.cache.Caffeine.newBuilder()
+        .maximumSize(20*1000) // change to config value, e.g. 1e9 = 1GB mem cache. Default to 50M? [ADJMEMUSG]
+        // BUG COULD use Redis, so the key won't disappear after server restart.
+        .expireAfterWrite(65, java.util.concurrent.TimeUnit.MINUTES)
+        .build().asInstanceOf[caffeine.cache.Cache[String, OAuth2StateStruct]]
+
 
   private case class StateAndNonce(browserIdOrEmpty: String, nonce: String)
 
@@ -121,14 +139,16 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
 
 
   def authnStart(protocol: String, providerAlias: String,
-          returnToUrl: String): Action[Unit]
+          returnToUrl: String, loginXsrfToken: String): Action[Unit]
           = AsyncGetActionIsLogin { request =>
-      authnStartImpl(protocol, providerAlias, returnToUrl, request)
+      authnStartImpl(protocol, providerAlias, returnToUrl = returnToUrl,
+            loginXsrfToken = loginXsrfToken, request)
     }
 
 
   private def authnStartImpl(protocol: String, providerAlias: String,
-        returnToUrl: String, request: GetRequest): Future[Result] = {
+        returnToUrl: String, loginXsrfToken: String,
+        request: GetRequest): Future[Result] = {
 
     import request.{dao, siteId}
 
@@ -136,6 +156,20 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
       case "oidc" | "oauth2" =>  // lowercase, from the url
       case _ => throwNotFound("TyEBADPROTO", "TyE603RFKEGM")
     }
+
+    // Once done logging in, the browser will look for this value in the
+    // url, and, if absent, could mean a login xsrf attack is happening
+    // — then, better reject the login session (which might be an attacker's
+    // session, not the real end user's session).
+    val browsersLoginXsrfToken =
+          if (loginXsrfToken.nonEmpty) {
+            loginXsrfToken
+          }
+          else {
+            urlDecodeCookie(EdSecurity.XsrfCookieName, request.underlying)
+                  .getOrThrowBadRequest(
+                      "TyE0LOGINXSRF", "Browse login XSRF token not specified")
+          }
 
     val idp: IdentityProvider =
           dao.getIdentityProviderByAlias(protocol, providerAlias) getOrElse {
@@ -173,20 +207,33 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
             s"s$siteId: Cannot get/create ScribeJava service for '$providerAlias'")
     }
 
-    // Redirect the browser to the OAuth2 auth endpoint, to login over there.
-    val state = "state_TODO_random"
+    val stateString = nextRandomString()
+
+    val stateStruct = OAuth2StateStruct(
+      stateStringDebug = stateString,
+      returnToUrl = returnToUrl,
+      browserXsrfToken = browsersLoginXsrfToken,
+      createdAt = globals.now(),
+      useCount = new java.util.concurrent.atomic.AtomicInteger(0))
+
+    oauth2StateCache.put(stateString, stateStruct)
+
     val authorizationUrl: String = authnService.createAuthorizationUrlBuilder()
-          .state(state)
-          //.additionalParams(... IDP specific &query=params ...)
+          .state(stateString)
+          //.additionalParams(... identity provider specific  &query = params ...)
           .build()
 
+    // Redirect the browser to the OAuth2 auth endpoint, to login over there.
     Future.successful(
           play.api.mvc.Results.Redirect(
-                authorizationUrl, status = play.api.http.Status.SEE_OTHER))
+              authorizationUrl, status = play.api.http.Status.SEE_OTHER))
   }
 
 
   /** (IDP = identity provider.)
+    *
+    * Note that the IDP might be mallicious (so, need rate limits, for example),
+    * and that the end user might be someone clicking an attacker provided link.
     *
     * @param state — specified by Ty. For preventing xsrf attacks.
     * @param session_state — if the IDP, say, Keycloak, supports
@@ -203,14 +250,39 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
     */
   def authnCallback(protocol: String, providerAlias: String,
           state: String, session_state: Option[String], code: String): Action[Unit]
-          = AsyncGetActionIsLogin { request =>
+          = AsyncGetActionIsLoginRateLimited { request =>
 
     import request.{dao, siteId}
 
-    // !! check the state !! xsrf
-    System.out.println(s"\n\nState: $state")
-    System.out.println(s"Code: Code: $code")
-    System.out.println(s"Session state: $session_state\n\n")
+    logger.debug(i"""
+          |s$siteId: OAuth2 redir back:
+          |  State: $state
+          |  Code: $code
+          |  Session state: $session_state""")
+
+    val stateStruct: OAuth2StateStruct =
+          Option(oauth2StateCache.getIfPresent(state))
+              .getOrThrowBadRequest("TyEOAUSTATEBAD", s"No such OAuth2 state: $state")
+
+    logger.debug(s"s$siteId: State struct: $stateStruct\n")
+    dieIf(stateStruct.stateStringDebug != state, "TyE3M06KD24")
+
+    val usageCount = stateStruct.useCount.incrementAndGet()
+    if (usageCount >= 2) {
+      throwForbidden("TyEOAUSTATEUSED",
+            s"Trying to use one-time OAuth2 redirect-back-URI $usageCount times")
+    }
+
+    // Give the user a few minutes to login — maybe hen wants to read some
+    // Terms of Use or Privacy Policy.
+    // If too slow, show a somewhat user friendly please-try-again message.
+    val minutesOld = globals.now().minutesSince(stateStruct.createdAt)
+    val maxMins = 5
+    if (minutesOld > maxMins) {
+      throwForbidden("TyEOAUSTATESLOW",
+            o"""You need to login within $maxMins minutes. Try again, a bit faster?
+              Time elapsed: $minutesOld minutes.""")
+    }
 
     val idp: IdentityProvider = request.dao.getIdentityProviderByAlias(
           protocol, providerAlias) getOrElse {
@@ -234,21 +306,22 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
 
     // ----- Access token request
 
-    // We just got back `code`, a temporary authorization code, from the auth
-    // server, via the query string in the browsers request, now when
-    // the browser got redirected back to Ty.
+    // We got back `code`, a temporary authorization code, from the auth server,
+    // via the query string in the browser, when it got redirected back to Ty.
     // All we can do with this temp code, is to send it to the auth server,
     // to get an access token.  (Later, we'll use the access token
     // to retrieve user info from the auth server.)
     //
-    // The reason for this "extra" temp code step, is that `code` is seen by
-    // the browser / end-user-app, and possibly intermediate infrastructure,
-    // when the browser is redirected back to this Ty server (the `code`
+    // The reason for this "extra" temp code step, is that 1) `code` is seen
+    // by the browser / end-user-app, and possibly intermediate infrastructure,
+    // when the browser is redirected back to the Ty server (the `code`
     // is in the URL). So, it might get intercepted by an attacker.
+    // And 2) the IDP wants to authenticate the Talkyard server (so the IDP
+    // won't send access tokens to untrusted servers).
     //
     // Therefore, the OAuth2 code flow requires the Ty server to send
     // the code together with the IDP client secret to the auth server,
-    // in a separate "backchannel" request, to get the real access token.
+    // in a separate backchannel request, to get the real access token.
     //
     // See https://openid.net/specs/openid-connect-core-1_0.html#TokenRequest
     // and https://www.oauth.com/oauth2-servers/access-tokens/authorization-code-request/
@@ -273,7 +346,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
 
     accessTokenPromise.future.onComplete({
       case Failure(throwable: Throwable) =>
-        val resultEx = throwable match {
+        val errorResponseException = throwable match {
           case ex @ (_: InterruptedException | _: j_ExecutionException | _: j_IOException) =>
             // We din't even get a response!
             ResultException(InternalErrorResult("TyEACSTKNREQ",
@@ -287,7 +360,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
                   s"Unknown error requesting access token: ${ex.toString}"))
         }
         // Pass our response on to userInfoPromise — it replies to the browser.
-        userInfoPromise.failure(resultEx)
+        userInfoPromise.failure(errorResponseException)
 
       case Success(accessToken: s_OAuth2AccessToken) =>
         // Continue below.
@@ -320,64 +393,103 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
     }
 
     val futureResponseToBrowser = userInfoPromise.future.transform {
-      case Failure(throwable: Throwable) => throwable match {
-        case ResultException(response) =>
-          // This happens if the access token request failed, above.
-          Success(response)
-        case ex @ (_: InterruptedException | _: j_ExecutionException | _: j_IOException) =>
-          Success(InternalErrorResult(
-                "TyEOIDCUSRREQ", s"Error requesting user info: ${ex.toString}"))
-        case ex =>
-          Success(InternalErrorResult(
-                "TyEOIDCUSRUNK", s"Unknown error requesting user info: ${ex.toString}"))
-      }
-
-      case Success(response: s_Response) =>
-        val httpStatusCode = response.getCode
-        val body = response.getBody
-        lazy val randVal = nextRandomString()
-
-        val result = if (httpStatusCode < 200 || 299 < httpStatusCode) {
-          logger.warn(i"""Bad status code from OIDC/OAuth2 userinfo endpoint: ${
-                  httpStatusCode},
-              |Error id: '$randVal'
-              |Provider: $providerAlias
-              |Response body: -----------------------
-              |$body
-              |--------------------------------------
-              |""")
-          InternalErrorResult("TyEOIDCUSRRSP", o"""Unexpected status code:
-                $httpStatusCode, see logs for details, search for '$randVal'""")
+      case Failure(throwable: Throwable) =>
+        val errorResponse = throwable match {
+          case ResultException(response) =>
+            // This happens if the access token request failed, above.
+            Success(response)
+          case ex@(_: InterruptedException | _: j_ExecutionException | _: j_IOException) =>
+            Success(InternalErrorResult(
+                  "TyEUSRINFREQ", s"Error requesting user info: ${ex.toString}"))
+          case ex =>
+            Success(InternalErrorResult(
+                  "TyEUSRINFUNK", s"Unknown error requesting user info: ${ex.toString}"))
         }
-        else {
-          val sb = StringBuilder.newBuilder
-          sb.append("Got it! Lets see what we found...\n\n")
-          sb.append(response.getCode + '\n')
-          sb.append(response.getBody + '\n')
+        errorResponse
 
-          val profile = ExternalSocialProfile(
-                providerId = idp.alias_c,
-                providerUserId = "response.sub",
-                username = Some("resp.preferred_username"),
-                firstName = None,
-                lastName = None,
-                fullName = None,
-                gender = None, // Option[Gender],
-                avatarUrl = None,
-                publicEmail = None,
-                publicEmailIsVerified = None,  // Option[Boolean],
-                primaryEmail = None,
-                primaryEmailIsVerified = None,  //  response-json.email_verified
-                company = None,
-                location = None,
-                aboutUser = None,
-                createdAt = None)
-          handleAuthenticationData(request, profile)
-        }
-        Success(result)
+      case Success(responseFromIdp: s_Response) =>
+        val responseToBrowser = handleUserInfoResponse(request, idp, responseFromIdp)
+        Success(responseToBrowser)
     }
 
     futureResponseToBrowser
+  }
+
+
+  private def handleUserInfoResponse(request: GetRequest, idp: IdentityProvider,
+          responseFromIdp: s_Response): Result = {
+    import request.siteId
+    val httpStatusCode = responseFromIdp.getCode
+    val body = responseFromIdp.getBody
+
+    if (httpStatusCode < 200 || 299 < httpStatusCode) {
+      val randVal = nextRandomString()
+      val errCode = "TyEUSRINFRSP"
+
+      logger.warn(i"""s$siteId: Bad OIDC/OAuth2 userinfo response [$errCode],
+          |Log message random id: '$randVal'
+          |IDP alias: ${idp.alias_c}, Ty db id: ${idp.id_c}
+          |Browser redir-back request URL: ${request.uri}
+          |IDP response status code: $httpStatusCode  (bad, not 2XX)
+          |IDP response body: -----------------------
+          |$body
+          |--------------------------------------
+          |""")
+      return InternalErrorResult(errCode, o"""Unexpected status code:
+            $httpStatusCode, see logs for details, search for '$randVal'""")
+    }
+
+    val maxUserRespLen = 5*1000
+    if (body.length > maxUserRespLen) {
+      // This is a weird IDP!?
+      return ForbiddenResult(
+            "TyEUSRINF2LONG", o"""Too long JSON payload: ${body.length
+                  } chars, max is: $maxUserRespLen""")
+    }
+
+    val json =
+          try Json.parse(body)
+          catch {
+            case ex: Exception =>
+              return ForbiddenResult(
+                    "TyEUSRINFJSON", s"Malformed JSON from userinfo endpoint")
+          }
+
+    if (idp.protocol_c == "oidc") {
+      // Read standard fields
+    }
+    else if (idp.protocol_c == "oauth2") {
+      // Custom mapping?
+    }
+    else {
+      // This'd be a bug.
+      // log msg too.
+      return InternalErrorResult("TyEUSRINFPROTO", s"Unknown protocol: ${idp.protocol_c}")
+    }
+
+    val profile = ExternalSocialProfile(
+          providerId = idp.alias_c,
+          providerUserId = "response.sub",
+          username = Some("resp.preferred_username"),
+          firstName = None,
+          lastName = None,
+          fullName = None,
+          gender = None, // Option[Gender],
+          avatarUrl = None,
+          publicEmail = None,
+          publicEmailIsVerified = None,  // Option[Boolean],
+          primaryEmail = None,
+          primaryEmailIsVerified = None,  //  response-json.email_verified
+          company = None,
+          location = None,
+          aboutUser = None,
+          createdAt = None)
+
+    // Later: handleAuthenticationData(request, profile)
+
+    val message = s"Response body:\n\n$body\nConstructed profile: $profile\n"
+    logger.debug(s"s$siteId: $message")
+    Ok(message)
   }
 
 
