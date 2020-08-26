@@ -45,7 +45,7 @@ private case class TyOidcScribeJavaApi20(idp: IdentityProvider) extends s_Defaul
     // >  ...&client_id=...&client_secret=...
     s_RequestBodyAuthenticationScheme.instance()
     // There's:  client_secret_basic, uses Basic Auth:
-    //s_HttpBasicAuthenticationScheme.instance()
+/// s_HttpBasicAuthenticationScheme.instance()
     // And also: client_secret_jwt, relies on HMAC SHA.
     // And: private_key_jwt,
     // And: none (for Implicit Flow and public clients).

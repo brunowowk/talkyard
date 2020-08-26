@@ -51,6 +51,20 @@ $_$;
 
 
 ------------------------------------------------------------------------
+comment on column  identity_providers_t.idp_access_token_auth_method_c  is $_$
+
+How the Talkyard server authenticates with the ID provider, when asking for
+the OAuth2 access token. Null and the default and 'client_secret_basic' means
+HTTP Basic Auth, whilst 'client_secret_post' means 'client_id' and
+'client_secret' in the form-data encoded POST body.
+OIDC also mentions 'client_secret_jwt', 'private_key_jwt' and 'none',
+see https://openid.net/specs/openid-connect-core-1_0.html#ClientAuthentication,
+— Talkyard doesn't support these.
+$_$;
+
+
+
+------------------------------------------------------------------------
 
 
 --======================================================================
