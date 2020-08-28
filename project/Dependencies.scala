@@ -48,7 +48,7 @@ object Dependencies {
 
     // OAuth lib, also works for OIDC (OpenID Connect).
     // VENDOR_THIS — it'd be good to Maven-build via Makefile?
-    val scribeJava = "com.github.scribejava" % "scribejava-apis" % "6.9.0"
+    val scribeJava = "com.github.scribejava" % "scribejava-apis" % "7.0.0"
 
     // Not v 3.1.2?
     val scalactic = "org.scalactic" %% "scalactic" % "3.1.1"
