@@ -40,7 +40,7 @@ class UploadsController @Inject()(cc: ControllerComponents, edContext: EdContext
   import context.globals.{maxUploadSizeBytes, anyPublicUploadsDir}
   import Globals.LocalhostUploadsDirConfValName
 
-  val MaxAvatarUploadSizeBytes: UnixDays =
+  val MaxAvatarUploadSizeBytes: Int =
     MaxAvatarTinySizeBytes + MaxAvatarSmallSizeBytes + MaxAvatarMediumSizeBytes
 
 
@@ -49,6 +49,10 @@ class UploadsController @Inject()(cc: ControllerComponents, edContext: EdContext
 
     // COULD disable the file upload dialog for guests. And refuse to receive any data at
     // all (not create any temp file) if not authenticated.
+    //
+    // Maybe a custom Nginx location, and checking  $body_bytes_sent *and* $content_length
+    // see: http://nginx.org/en/docs/http/ngx_http_core_module.html#variables
+    //
     if (!request.theUser.isAuthenticated)
       throwForbidden("DwE7UMF2", o"""Only authenticated users (but not guests) may upload files.
           Please login via for example Google or Facebook, or create a password account""")
@@ -77,6 +81,13 @@ class UploadsController @Inject()(cc: ControllerComponents, edContext: EdContext
       throwBadRequest("EdE7UYMF3", s"Use the multipart form data key name 'file' please")
 
     val file = files.head
+
+    val maxSizeThisSiteRequesterFileType = maxUploadSizeBytes
+    val forThisFileType = " for this file type"
+    throwForbiddenIf(file.fileSize > maxUploadSizeBytes,
+          "TyEUPLSZ", o"""Uploaded file too large, max is: ${
+          maxSizeThisSiteRequesterFileType}$forThisFileType. Consider uploading
+          to a file or image hosting service instead, and share a link?""")
 
     val uploadRef = request.dao.addUploadedFile(
       file.filename, file.ref.file, request.theUserId, request.theBrowserIdData)

@@ -600,6 +600,11 @@ class Globals(  // RENAME to TyApp? or AppContext? TyAppContext? variable name =
   val anyCreateTestSiteHostname: Option[String] =
     getStringNoneIfBlank("talkyard.createTestSiteHostname")
 
+  // 2 values: 1 for whole server, absolute max all sites.
+  // 1 per site.  serverGlobalMaxUploadKb   and siteDefaultMaxUploadKb
+  // Or  maxUploadKbServerGlobal  and  maxUploadKbSiteDefault
+  // And admins can config their site's siteDefaultMaxFileKb
+  //   up to serverGlobalMaxFileKb?
   val maxUploadSizeBytes: Int =
     (conf.getOptional[Int]("talkyard.uploads.maxKiloBytesPerFile") orElse
       conf.getOptional[Int]("talkyard.uploads.maxKiloBytes")).map(_ * 1000).getOrElse(3*1000*1000)
