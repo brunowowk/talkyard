@@ -1200,7 +1200,7 @@ object JsonMaker {
         customIdps: Seq[IdentityProvider], globals: Globals): JsObject = {
     // Only include settings that differ from the default.
 
-    var json = Json.obj(
+    var json = if (settings.useOnlyCustomIdps) JsEmptyObj else Json.obj(
       // The defaults depend on if these login methods are defined in the config files,
       // so need to always include, client side (client side, default values = unknown).
       "enableGoogleLogin" -> settings.enableGoogleLogin,
@@ -1212,7 +1212,7 @@ object JsonMaker {
       "enableVkLogin" -> settings.enableVkLogin,
       "enableInstagramLogin" -> settings.enableInstagramLogin)
 
-    if (customIdps.nonEmpty) {
+    if (customIdps.nonEmpty && settings.enableCustomIdps) {
       json += "customIdps" -> JsArray(customIdps map JsIdentityProviderPubFields)
     }
 
@@ -1227,6 +1227,10 @@ object JsonMaker {
       json += "inviteOnly" -> JsBoolean(settings.inviteOnly)
     if (settings.allowSignup != D.allowSignup)
       json += "allowSignup" -> JsBoolean(settings.allowSignup)
+    if (settings.enableCustomIdps != D.enableCustomIdps)
+      json += "enableCustomIdps" -> JsBoolean(settings.enableCustomIdps)
+    if (settings.useOnlyCustomIdps != D.useOnlyCustomIdps)
+      json += "useOnlyCustomIdps" -> JsBoolean(settings.useOnlyCustomIdps)
     if (settings.allowLocalSignup != D.allowLocalSignup)
       json += "allowLocalSignup" -> JsBoolean(settings.allowLocalSignup)
     if (settings.isGuestLoginAllowed != D.allowGuestLogin)

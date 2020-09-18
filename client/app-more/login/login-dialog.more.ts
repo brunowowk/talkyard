@@ -267,7 +267,7 @@ export const LoginDialogContent = createClassAndFactory({
     // so one won't see an empty page with just a "Log In" button (the .s_LD_SsoB button).
     // This redirect could be done server side, here: [COULDSSOREDIR]. However, then
     // makeSsoUrl() would need to be available server side too.
-    if (settings.effectiveSsoLoginRequiredLogoutUrl) {
+    if (settings.effectiveSsoLoginRequiredLogoutUrl) {  // ? [useOnlyCustomIdps]
       const ssoUrl = makeSsoUrl(store, location.toString());
       location.assign(ssoUrl);
     }
@@ -289,12 +289,12 @@ export const LoginDialogContent = createClassAndFactory({
     const childDialogProps = _.clone(this.props);
     childDialogProps.closeDialog = closeChildDialog;  // CLEAN_UP can REMOVE?
 
-    const makeOauthProps = (iconClass: string, provider: string, content?) => {
+    const makeOauthProps = (iconClass: St, provider: St, content?) => {
       return {
         id: 'e2eLogin' + provider,
-        iconClass: iconClass,
-        provider: provider,
-        loginReason: loginReason,
+        iconClass,
+        provider,
+        loginReason,
         anyReturnToUrl: this.props.anyReturnToUrl,
         content
       };
@@ -368,8 +368,9 @@ export const LoginDialogContent = createClassAndFactory({
     const customIdps: IdentityProviderPubFields[] = ss.customIdps || [];
     const customOidcBtns = customIdps.map(idp =>
         OpenAuthButton({
-            ...makeOauthProps('icon-user', idp.displayName || idp.alias),
-            key: idp.alias,
+            ...makeOauthProps('icon-user',
+                  `${idp.protocol}/${idp.alias}`, idp.displayName),
+            key: `${idp.protocol}/${idp.alias}`,
             idp }));
 
     // (Place any custom IDPs last by default — because if other authn methods enabled,
@@ -383,13 +384,18 @@ export const LoginDialogContent = createClassAndFactory({
         ss.enableFacebookLogin || ss.enableTwitterLogin || ss.enableGitHubLogin ||
         ss.enableLinkedInLogin;
 
+    const canUseCustomIdps = ss.customIdps?.length;
+    const useOnlyCustomIdps = ss.useOnlyCustomIdps && canUseCustomIdps;
+    const allowLocalSignup = ss.allowLocalSignup !== false && !useOnlyCustomIdps;
+
     let content;
-    if (settings.enableSso) {
-      const ssoUrl = makeSsoUrl(store, location.toString());
+
+    const anySsoUrl = makeSsoUrl(store, location.toString());
+    if (anySsoUrl) {
       content =
           r.div({ style: { textAlign: 'center' }},
-            ExtLinkButton({ href: ssoUrl, className: 's_LD_SsoB btn-primary' },
-              "Log In"));
+            ExtLinkButton({ href: anySsoUrl, className: 's_LD_SsoB btn-primary' },
+              t.LogIn));
     }
     else {
       content = rFragment({},
@@ -419,7 +425,7 @@ export const LoginDialogContent = createClassAndFactory({
             // OpenID 1.0 since long gone, so skip:  icon-yahoo Yahoo!
             )),
 
-        isSignUp && ss.allowLocalSignup === false ? null : (
+        isSignUp && !allowLocalSignup ? null : (
           r.p({ id: 'dw-lgi-or-login-using' },
             anyOpenAuth
               ? (isSignUp
@@ -494,7 +500,7 @@ const OpenAuthButton = createClassAndFactory({
   },
   render: function() {
     return (
-      Button({ id: this.props.id, key: this.props.key,
+      Button({ id: this.props.id, // key: this.props.id,
           className: this.props.iconClass, onClick: this.onClick },
         this.props.content || this.props.provider));
   }

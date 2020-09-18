@@ -407,6 +407,16 @@ export function deleteById(itemsWithId: any[], idToDelete) {
 }
 
 
+export function url_getHost(url: St): St {
+  // @ifdef DEBUG
+  dieIf(!url, 'TyE305RKSG');
+  // @endif
+  if (!url) return '';
+  const parts = url.split('/');
+  return parts && parts.length >= 3 ? parts[2] : '';
+}
+
+
 export function arr_sortAlphaInPlace<V>(vs: V[], strFn: (v: V) => S) {
   const langCode = 'en';  // for now. Later, add a t.localeCompareLangCode field? I18N  [subcats]
   // See:  https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl#Locale_identification_and_negotiation

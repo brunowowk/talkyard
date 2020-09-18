@@ -1608,12 +1608,19 @@ case class OpenAuthIdentity(
 case class OpenAuthDetails(   // [exp] ok use, country, createdAt missing, fine
   providerId: String,
   providerKey: String,
+  isThisSiteCustomIdp: Boolean,
+  idpDatabaseId: Option[Int] = None,
   username: Option[String] = None,
   firstName: Option[String] = None,
   lastName: Option[String] = None,
   fullName: Option[String] = None,
   email: Option[String] = None,
-  avatarUrl: Option[String] = None) {
+  isEmailVerifiedByIdp: Option[Boolean] = None,
+  avatarUrl: Option[String] = None,
+  userInfoJson: Option[JsValue] = None) {
+
+  require(!isThisSiteCustomIdp || idpDatabaseId.isDefined, "TyE39KRGW37")
+  require(email.isDefined || isEmailVerifiedByIdp.isNot(true), "TyE6#KRGL24")
 
   def providerIdAndKey = OpenAuthProviderIdKey(providerId, providerKey)
 

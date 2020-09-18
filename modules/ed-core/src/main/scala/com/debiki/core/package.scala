@@ -44,7 +44,7 @@ package object core {
   type U = Unit
   type St = String
   type Bo = Boolean
-  type i8 = Byte // 'I8' is better than 'Byte', so remembers it is signed
+  type i8 = Byte // 'i8' is better than 'Byte', so remembers it is signed
   type i16 = Short
   type u16 = Char
   type i32 = Int
@@ -53,6 +53,7 @@ package object core {
   type f64 = Double
   type ErrMsg = ErrorMessage // = String
   type Opt[+A] = Option[A]
+  val Opt: Option.type = scala.Option
 
   type Vec[+A] = scala.collection.immutable.Vector[A]
   val Vec: Vector.type = scala.collection.immutable.Vector

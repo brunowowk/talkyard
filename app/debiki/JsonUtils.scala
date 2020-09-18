@@ -18,8 +18,9 @@
 package debiki
 
 import com.debiki.core.Prelude._
-import com.debiki.core.{ParsedRef, When, WhenDay}
+import com.debiki.core.{Bo, ErrMsg, Opt, ParsedRef, St, When, WhenDay}
 import java.{util => ju}
+import org.scalactic.{Bad, Or}
 import play.api.libs.json._
 
 
@@ -35,6 +36,13 @@ object JsonUtils {
   // If we see any unix time greater than this, we'll assume it's in millis, otherwise, seconds.
   private val UnixMillisSomeDayIn1973 = 100000000000L  // [MINMILLIS]
 
+  def tryParseGoodBad[R](block: => R Or ErrMsg): R Or ErrMsg = {
+    try block
+    catch {
+      case ex: BadJsonException =>
+        Bad(ex.getMessage)
+    }
+  }
 
   def readJsObject(json: JsValue, fieldName: String): JsObject =
     readOptJsObject(json, fieldName).getOrElse(throwMissing("EsE1FY90", fieldName))
@@ -78,9 +86,15 @@ object JsonUtils {
   } */
 
 
+  def parseSt(json: JsValue, fieldName: St): St =
+    readString(json, fieldName)
+
   def readString(json: JsValue, fieldName: String): String =
     readOptString(json, fieldName) getOrElse throwMissing("EsE7JTB3", fieldName)
 
+
+  def parseOptSt(json: JsValue, fieldName: St, altName: St = ""): Opt[St] =
+    readOptString(json, fieldName, altName)
 
   def readOptString(json: JsValue, fieldName: String, altName: String = ""): Option[String] = {
     val primaryResult = readOptStringImpl(json, fieldName)
@@ -168,6 +182,9 @@ object JsonUtils {
     readOptLong(json, fieldName) getOrElse throwMissing("EsE6Y8FW2", fieldName)
 
 
+  def parseOptLong(json: JsValue, fieldName: String): Opt[Long] =
+    readOptLong(json, fieldName)
+
   def readOptLong(json: JsValue, fieldName: String): Option[Long] =
     (json \ fieldName).validateOpt[Long] match {
       case JsSuccess(value, _) => value
@@ -177,9 +194,15 @@ object JsonUtils {
     }
 
 
+  def parseBo(json: JsValue, fieldName: String, default: Bo): Bo =
+    readOptBool(json, fieldName) getOrElse default
+
   def readBoolean(json: JsValue, fieldName: String): Boolean =
     readOptBool(json, fieldName) getOrElse throwMissing("EsE4GUY8", fieldName)
 
+
+  def parseOptBo(json: JsValue, fieldName: String): Opt[Bo] =
+    readOptBool(json, fieldName)
 
   def readOptBool(json: JsValue, fieldName: String): Option[Boolean] =
     (json \ fieldName).validateOpt[Boolean] match {

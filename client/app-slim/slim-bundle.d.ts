@@ -155,6 +155,8 @@ declare namespace debiki2 {
 
   function replaceById(itemsWithId: any[], replacement);
   function deleteById(itemsWithId: any[], id);
+  function url_getHost(url: St): St;
+  function arr_sortAlphaInPlace<V>(vs: V[], strFn: (v: V) => St);
 
   namespace notfs {
     function PageNotfPrefButton(props: {

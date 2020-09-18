@@ -26,12 +26,13 @@
 // And this or this — I think "boolean" is so long and distracting:
 //
 //   const shallFeedLion: boolean = countDaysSinceLastZebra();
-//   const shallFeedLion: B = countDaysSinceLastZebra();
+//   const shallFeedLion: Bo = countDaysSinceLastZebra();
+//
+// And thanks to St and Nr, lots of line breaks in function signatures,
+// can be avoided. — Really short names, for really frequently used things?
 //
 type U = undefined;
-type B = boolean;
 type Bo = boolean;
-type N = number;
 type Nr = number;
 type S = string;
 type St = string;

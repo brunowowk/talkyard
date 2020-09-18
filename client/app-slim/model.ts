@@ -951,6 +951,7 @@ interface SettingsVisibleClientSide extends TopicInterfaceSettings {
   allowLocalSignup?: boolean;           // default: true
   allowGuestLogin?: boolean;            // default: false
   customIdps?: IdentityProviderPubFields[];   // default: undefined
+  useOnlyCustomIdps?: boolean;          // default: false
   enableGoogleLogin: boolean;           // default: depends on config file
   enableFacebookLogin: boolean;         // default: depends on config file
   enableTwitterLogin: boolean;          // default: depends on config file
@@ -1466,10 +1467,10 @@ interface Settings extends TopicInterfaceSettings {
   userMustBeApproved: boolean;
   inviteOnly: boolean;
   allowSignup: boolean;
+  enableCustomIdps: Bo;
+  useOnlyCustomIdps: Bo;
   allowLocalSignup: boolean;
   allowGuestLogin: boolean;
-  enableOidc: boolean;
-  onlyOidc: boolean;
   enableGoogleLogin: boolean;
   enableFacebookLogin: boolean;
   enableTwitterLogin: boolean;
