@@ -40,8 +40,10 @@ trait AllSettings {
   // def approveInvitesHow: HowApproveInvites.BeforeTheyAreSent/AfterSignup/AlwaysAllow
   def inviteOnly: Boolean
   def allowSignup: Boolean
-  def allowLocalSignup: Boolean
-  def allowGuestLogin: Boolean
+  def enableCustomIdps: Boolean
+  def useOnlyCustomIdps: Boolean
+  def allowLocalSignup: Boolean  // RENAME? to  enableLocalSignup. Allow/deny for authz instead?
+  def allowGuestLogin: Boolean   // RENAME  to  enableGuestLogin.
   def enableGoogleLogin: Boolean
   def enableFacebookLogin: Boolean
   def enableTwitterLogin: Boolean
@@ -203,6 +205,8 @@ trait AllSettings {
     expireIdleAfterMins = Some(self.expireIdleAfterMins),
     inviteOnly = Some(self.inviteOnly),
     allowSignup = Some(self.allowSignup),
+    enableCustomIdps = Some(self.enableCustomIdps),
+    useOnlyCustomIdps = Some(self.useOnlyCustomIdps),
     allowLocalSignup = Some(self.allowLocalSignup),
     allowGuestLogin = Some(self.allowGuestLogin),
     enableGoogleLogin = Some(self.enableGoogleLogin),
@@ -326,6 +330,8 @@ object AllSettings {
     val expireIdleAfterMins: Int = 60 * 24 * 365  // [7AKR04]
     val inviteOnly = false
     val allowSignup = true
+    val enableCustomIdps = false
+    val useOnlyCustomIdps = false
     val allowLocalSignup = true
     val allowGuestLogin = false
     val enableGoogleLogin: Boolean = globals.socialLogin.googleOAuthSettings.isGood
@@ -450,6 +456,8 @@ case class EffectiveSettings(
   def expireIdleAfterMins: Int = firstInChain(_.expireIdleAfterMins) getOrElse default.expireIdleAfterMins
   def inviteOnly: Boolean = firstInChain(_.inviteOnly) getOrElse default.inviteOnly
   def allowSignup: Boolean = firstInChain(_.allowSignup) getOrElse default.allowSignup
+  def enableCustomIdps: Boolean = firstInChain(_.enableCustomIdps) getOrElse default.enableCustomIdps
+  def useOnlyCustomIdps: Boolean = firstInChain(_.useOnlyCustomIdps) getOrElse default.useOnlyCustomIdps
   def allowLocalSignup: Boolean = firstInChain(_.allowLocalSignup) getOrElse default.allowLocalSignup
   def allowGuestLogin: Boolean = firstInChain(_.allowGuestLogin) getOrElse default.allowGuestLogin
   def enableGoogleLogin: Boolean = firstInChain(_.enableGoogleLogin) getOrElse default.enableGoogleLogin
@@ -577,11 +585,18 @@ case class EffectiveSettings(
 
   def isGuestLoginAllowed: Boolean =
     allowGuestLogin && !userMustBeAuthenticated && !userMustBeApproved &&
-      !inviteOnly && allowSignup && !enableSso
+      !inviteOnly && allowSignup && !enableSso && !useOnlyCustomIdps
 
   def isEmailAddressAllowed(address: String): Boolean =
     // If SSO enabled, the remote SSO system determines what's allowed and what's not. [7AKBR25]
     if (enableSso) true
+    else if (enableCustomIdps) {
+      COULD // find out if the account is via a custom IDP,
+      // with email address verified — then accept the email addr.
+      // For now, if we *only* use custom IDPs, then they'll decide what
+      // addresses are allowed.
+      useOnlyCustomIdps   // BUGGYBUG
+    }
     else EffectiveSettings.isEmailAddressAllowed(
       address, allowListText = emailDomainWhitelist, blockListText = emailDomainBlacklist)
 
@@ -686,6 +701,8 @@ object Settings2 {
       "expireIdleAfterMins" -> JsNumberOrNull(s.expireIdleAfterMins),
       "inviteOnly" -> JsBooleanOrNull(s.inviteOnly),
       "allowSignup" -> JsBooleanOrNull(s.allowSignup),
+      "enableCustomIdps" -> JsBooleanOrNull(s.enableCustomIdps),
+      "useOnlyCustomIdps" -> JsBooleanOrNull(s.useOnlyCustomIdps),
       "allowLocalSignup" -> JsBooleanOrNull(s.allowLocalSignup),
       "allowGuestLogin" -> JsBooleanOrNull(s.allowGuestLogin),
       "enableGoogleLogin" -> JsBooleanOrNull(s.enableGoogleLogin),
@@ -792,6 +809,8 @@ object Settings2 {
     expireIdleAfterMins = anyInt(json, "expireIdleAfterMins", d.expireIdleAfterMins),
     inviteOnly = anyBool(json, "inviteOnly", d.inviteOnly),
     allowSignup = anyBool(json, "allowSignup", d.allowSignup),
+    enableCustomIdps = anyBool(json, "enableCustomIdps", d.enableCustomIdps),
+    useOnlyCustomIdps = anyBool(json, "useOnlyCustomIdps", d.useOnlyCustomIdps),
     allowLocalSignup = anyBool(json, "allowLocalSignup", d.allowLocalSignup),
     allowGuestLogin = anyBool(json, "allowGuestLogin", d.allowGuestLogin),
     enableGoogleLogin = anyBool(json, "enableGoogleLogin", d.enableGoogleLogin),

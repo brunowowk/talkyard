@@ -116,12 +116,11 @@ export function openLoginDialog(purpose) {
 }
 
 
-function goToSsoPageOrElse(returnToUrl: string, fn) {
+function goToSsoPageOrElse(returnToUrl: St, fn: () => void) {
   const store: Store = ReactStore.allData();
-  const settings: SettingsVisibleClientSide = store.settings;
-  if (settings.enableSso && settings.ssoUrl) {
-    const ssoUrl = makeSsoUrl(store, returnToUrl);
-    location.assign(ssoUrl);
+  const anySsoUrl: St | U = makeSsoUrl(store, returnToUrl);
+  if (anySsoUrl) {
+    location.assign(anySsoUrl);
   }
   else {
     fn();
@@ -129,9 +128,13 @@ function goToSsoPageOrElse(returnToUrl: string, fn) {
 }
 
 
-export function makeSsoUrl(store: Store, returnToUrlMaybeMagicRedir: string): string | undefined {
+export function makeSsoUrl(store: Store, returnToUrlMaybeMagicRedir: St): St | U {
   const settings: SettingsVisibleClientSide = store.settings;
-  if (!settings.ssoUrl)
+  const talkyardSsoUrl = settings.enableSso && settings.ssoUrl;
+  const customSsoIdp = settings.useOnlyCustomIdps &&
+          settings.customIdps?.length === 1 && settings.customIdps[0];
+
+  if (!customSsoIdp && !talkyardSsoUrl)
     return undefined;
 
   // Remove magic text that tells the Talkyard server to redirect to the return to url,
@@ -151,11 +154,15 @@ export function makeSsoUrl(store: Store, returnToUrlMaybeMagicRedir: string): st
   // Talkyard forum. And then, better use `${talkyardPathQueryEscHash}` instead. However,
   // can be many Talkyard origins, if there's also a blog with embedded comments,
   // or more than one forum, which all use the same SSO login page.
-  const ssoUrlWithReturn = (
-      settings.ssoUrl
+  const ssoUrlWithReturn = talkyardSsoUrl
+      ? (talkyardSsoUrl
         .replace('${talkyardUrlDangerous}', returnToUrl)
         .replace('${talkyardOriginDangerous}', origin)
-        .replace('${talkyardPathQueryEscHash}', returnToPathQueryHash));
+        .replace('${talkyardPathQueryEscHash}', returnToPathQueryHash))
+      : (
+        // Later: Incl returnToPathQueryHash
+        `/-/authn/${customSsoIdp.protocol}/${customSsoIdp.alias}`);
+
   return ssoUrlWithReturn;
 }
 

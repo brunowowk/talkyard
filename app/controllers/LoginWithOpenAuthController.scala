@@ -42,6 +42,7 @@ import org.scalactic.{Bad, ErrorMessage, Good, Or}
 import play.api.libs.json._
 import play.api.mvc._
 import play.api.Configuration
+import talkyard.server.authn.{parseCustomUserInfo, parseOidcUserInfo}
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
@@ -100,7 +101,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
 
   def conf: Configuration = globals.rawConf
 
-  private val cache = caffeine.cache.Caffeine.newBuilder()
+  private val extIdentityCache = caffeine.cache.Caffeine.newBuilder()
     .maximumSize(20*1000) // change to config value, e.g. 1e9 = 1GB mem cache. Default to 50M? [ADJMEMUSG]
     // Don't expire too quickly — the user needs time to choose & typ a username.
     // SECURITY COULD expire sooner (say 10 seconds) if just logging in, because then
@@ -452,44 +453,24 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
           catch {
             case ex: Exception =>
               return ForbiddenResult(
-                    "TyEUSRINFJSON", s"Malformed JSON from userinfo endpoint")
+                    "TyEUSRINFJSONPARSE", s"Malformed JSON from userinfo endpoint")
           }
 
-    if (idp.protocol_c == "oidc") {
-      // Read standard fields
-    }
-    else if (idp.protocol_c == "oauth2") {
-      // Custom mapping?
-    }
-    else {
-      // This'd be a bug.
-      // log msg too.
-      return InternalErrorResult("TyEUSRINFPROTO", s"Unknown protocol: ${idp.protocol_c}")
+    val oauthDetails: OpenAuthDetails = (idp.protocol_c match {
+      case "oidc" => parseOidcUserInfo(json, idp)
+      case "oauth2" => parseCustomUserInfo(json, idp)
+      case x => die("TyE305RKS56", s"Bad auth protocol: $x")
+    }) getOrIfBad { errMsg =>
+      return BadReqResult("TyEUSRINFJSONUSE", errMsg)
     }
 
-    val profile = ExternalSocialProfile(
-          providerId = idp.alias_c,
-          providerUserId = "response.sub",
-          username = Some("resp.preferred_username"),
-          firstName = None,
-          lastName = None,
-          fullName = None,
-          gender = None, // Option[Gender],
-          avatarUrl = None,
-          publicEmail = None,
-          publicEmailIsVerified = None,  // Option[Boolean],
-          primaryEmail = None,
-          primaryEmailIsVerified = None,  //  response-json.email_verified
-          company = None,
-          location = None,
-          aboutUser = None,
-          createdAt = None)
-
-    // Later: handleAuthenticationData(request, profile)
-
+    tryLoginOrShowCreateUserDialog(
+          request, anyOauthDetails = Some(oauthDetails), isCustomIdp = true)
+    /*
     val message = s"Response body:\n\n$body\nConstructed profile: $profile\n"
     logger.debug(s"s$siteId: $message")
     Ok(message)
+     */
   }
 
 
@@ -497,7 +478,6 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
     Future.successful(NotImplementedResult("TyEOIDCLGO", "Not implemented"))
     // TODO backchannel logout from  /-/logout ?
   }
-
 
 
 
@@ -566,6 +546,9 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
 
     throwForbiddenIf(settings.enableSso,
       "TyESSO0OAUTH", "OpenAuth authentication disabled, because SSO enabled")
+    throwForbiddenIf(settings.useOnlyCustomIdps,
+      "TyECUIDPDEFOAU", o"""Default OpenAuth authentication disabled,
+        when using only custom OIDC or OAuth2""")
 
     if (globals.anyLoginOrigin isSomethingButNot originOf(request)) {
       // OAuth providers have been configured to send authentication data to another
@@ -712,7 +695,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
         val xsrfToken = anyReturnToSiteXsrfToken getOrDie "DwE0F4C2"
         val oauthDetailsCacheKey = nextRandomString()
         SHOULD // use Redis instead, so logins won't fail because the app server was restarted.
-        cache.put(oauthDetailsCacheKey, oauthDetails)
+        extIdentityCache.put(oauthDetailsCacheKey, oauthDetails)
         val continueAtOriginalSiteUrl =
           originalSiteOrigin + routes.LoginWithOpenAuthController.continueAtOriginalSite(
             oauthDetailsCacheKey, xsrfToken)
@@ -728,17 +711,21 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
 
   private def tryLoginOrShowCreateUserDialog(
         request: GetRequest, oauthDetailsCacheKey: Option[String] = None,
-        anyOauthDetails: Option[OpenAuthDetails] = None): Result = {
+        anyOauthDetails: Option[OpenAuthDetails] = None,
+        isCustomIdp: Boolean = false): Result = {
 
     val dao = request.dao
     val siteSettings = dao.getWholeSiteSettings()
 
     throwForbiddenIf(siteSettings.enableSso,
-      "TyESSO0OAUTHLGI", "OpenAuth login disabled, because SSO enabled")
+          "TyESSO0OAUTHLGI", "OpenAuth login disabled, because SSO enabled")
+    throwForbiddenIf(siteSettings.useOnlyCustomIdps && !isCustomIdp,
+          "TyECUIDPOAULGI",
+          "Default OpenAuth login disabled — using only custom OIDC or OAuth2")
 
     def cacheKey = oauthDetailsCacheKey.getOrDie("DwE90RW215")
     val oauthDetails: OpenAuthDetails =
-      anyOauthDetails.getOrElse(Option(cache.getIfPresent(cacheKey)) match {
+      anyOauthDetails.getOrElse(Option(extIdentityCache.getIfPresent(cacheKey)) match {
         case None => throwForbidden("DwE76fE50", "OAuth cache value not found")
         case Some(value) =>
           // Remove to prevent another login with the same key, in case it gets leaked,
@@ -746,7 +733,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
           // (Hmm, we remove the OpenAuthDetails entry here, and then add it back again here: (406BM5).
           // Maybe could avoid removing it here. Still, good to do here, so it gets
           // deleted for all code paths below that throws a client error back to the browser.)
-          cache.invalidate(cacheKey)
+          extIdentityCache.invalidate(cacheKey)
           value.asInstanceOf[OpenAuthDetails]
       })
 
@@ -958,7 +945,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
   private def showCreateUserDialog(request: GetRequest, oauthDetails: OpenAuthDetails): Result = {
     // Re-insert the  OpenAuthDetails, we just removed it (406BM5). A bit double work?
     val cacheKey = nextRandomString()
-    cache.put(cacheKey, oauthDetails)
+    extIdentityCache.put(cacheKey, oauthDetails)
 
     val anyIsInLoginWindowCookieValue = request.cookies.get(IsInLoginWindowCookieName).map(_.value)
     val anyReturnToUrlCookieValue = request.cookies.get(ReturnToUrlCookieName).map(_.value)
@@ -1005,14 +992,15 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
         // LoginWithPasswordController, + login-dialog.ts [5PY8FD2]
         allowAnyone = true) { request: JsonPostRequest =>
 
-    val body = request.body
-    val dao = request.dao
+    // A bit dupl code. [2FKD05]
+    import request.{body, dao}
 
     val siteSettings = dao.getWholeSiteSettings()
 
     throwForbiddenIf(siteSettings.enableSso,
       "TyESSO0OAUTHNWUSR", "OpenAuth user creation disabled, because SSO enabled")
-
+    // ... But `useOnlyCustomIdps` is fine — here's where we log in
+    // via custom IDPs.
     throwForbiddenIf(!siteSettings.allowSignup,
       "TyE0SIGNUP04", "OpenAuth user creation disabled, because new signups not allowed")
 
@@ -1024,11 +1012,11 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
     throwForbiddenIf(!siteSettings.isEmailAddressAllowed(emailAddress),
       "TyEBADEMLDMN_-OAUTHB", "You cannot sign up using that email address")
 
-    val oauthDetailsCacheKey = (body \ "authDataCacheKey").asOpt[String] getOrElse
-      throwBadReq("DwE08GM6", "Auth data cache key missing")
-    val oauthDetails = Option(cache.getIfPresent(oauthDetailsCacheKey)) match {
+    val oauthDetailsCacheKey = (body \ "authDataCacheKey").asOpt[String]
+          .getOrThrowBadRequest("TyE08GM6", "Auth data cache key missing")
+    val oauthDetails = Option(extIdentityCache.getIfPresent(oauthDetailsCacheKey)) match {
       case Some(details: OpenAuthDetails) =>
-        // Don't remove the cache key here — maybe the user specified a username that's
+        // Don't remove the cache key here — maybe the user specified a username that's
         // in use already. Then hen needs to be able to submit again (using the same key).
         details
       case None =>
@@ -1060,7 +1048,8 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
         None
     }
 
-    // Some dupl code. [2FKD05]
+    // More dupl code. [2FKD05]
+
     if (!siteSettings.requireVerifiedEmail && emailAddress.isEmpty) {
       // Fine.
     }
@@ -1140,7 +1129,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
       }
 
       // Everything went fine. Won't need to submit the dialog again, so remove the cache key.
-      cache.invalidate(oauthDetailsCacheKey)
+      extIdentityCache.invalidate(oauthDetailsCacheKey)
 
       result.discardingCookies(CookiesToDiscardAfterLogin: _*)
     }
