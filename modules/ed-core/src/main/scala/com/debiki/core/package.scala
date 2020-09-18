@@ -30,11 +30,24 @@ import scala.util.{Failure, Success, Try}
 
 package object core {
 
+  // It's nice when frequently used names are short:
+  type St = String
+  type Bo = Boolean
+  type I8 = Byte // 'I8' is better than 'Byte', so remembers it is signed
+  type I16 = Short
+  type U16 = Char
+  // type I32 = Int — no, type Int instead, easier to read
+  // type I64 = Long — no, type Long instead, easier to read
+  type F32 = Float
+  type F64 = Double
+  type ErrMsg = ErrorMessage // = String
+  type Opt[+A] = Option[A]
+  type Vec[+A] = scala.collection.immutable.Vector[A]
+
+
   def isDevOrTest: Boolean = Prelude.isDevOrTest
   def isProd: Boolean = Prelude.isProd
 
-  // "Vector" is so very long, for such a good & please-use-frequently collection.
-  type Vec[+A] = scala.collection.immutable.Vector[A]
 
   type ActionId = Int
 
