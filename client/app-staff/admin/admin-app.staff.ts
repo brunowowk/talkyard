@@ -86,7 +86,8 @@ const SsoTestComponent = createReactClass(<any> {
     const store: Store = this.state.store;
     const settings = store.settings;
     const me: Myself = store.me;
-    const ssoUrl = login.makeSsoUrl(store, window.location.toString());
+    const ssoUrl = login.makeSsoUrl(
+            store, window.location.toString(), true /* onlyIfTySso */);
 
     const noSsoUrlInfo = ssoUrl ? null :
       rFragment({},
@@ -784,7 +785,7 @@ const LoginAndSignupSettings = createFactory({
           getter: (s: Settings) => s.enableCustomIdps,
           update: (newSettings: Settings, target) => {
             newSettings.enableCustomIdps = target.checked;
-            if (newSettings.useOnlyCustomIdps) {
+            if (useOnlyCustomIdps) {
               newSettings.useOnlyCustomIdps = false;
             }
           }
@@ -794,12 +795,16 @@ const LoginAndSignupSettings = createFactory({
           type: 'checkbox',
           label: rFragment({}, r.b({}, "Only"), " your OIDC or OAuth2"),
           className: 'e_A_Ss_S-OnlyOidcCB',
-          help: "Disables all other ways to sign up. " +
+          help: rFragment({},
+              "Disables all other ways to sign up. " +
               //"If you've configured just one custom identity provider, " +
               //"this means Single Sign-On. " +
               "You should be logged in via your custom OIDC or OAuth2 already, " +
-              "otherwise you might lock yourself out?",
-          disabled: !showAll(), // later: disable unless currently logged in via oidc
+              "otherwise you might lock yourself out?", r.br(),
+              r.span({ style: { fontWeight: useOnlyCustomIdps ? 'bold' : undefined }},
+                "If you lock yourself out, go here: ",
+                r.a({ href: origin() + UrlPaths.AdminLogin }, UrlPaths.AdminLogin))),
+          // disabled: // later: disable unless currently logged in via oidc?
           getter: (s: Settings) => s.useOnlyCustomIdps,
           update: (newSettings: Settings, target) => {
             newSettings.useOnlyCustomIdps = target.checked;

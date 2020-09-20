@@ -41,6 +41,8 @@ GET   /-/login-auth-callback/:providerName  controllers.LoginWithOpenAuthControl
 GET   /-/login-oauth-then-return/:providerName controllers.LoginWithOpenAuthController.loginAtLoginOriginThenReturnToOriginalSite(providerName, returnToOrigin, xsrfToken)
 GET   /-/login-oauth-continue           controllers.LoginWithOpenAuthController.continueAtOriginalSite(oauthDetailsCacheKey, xsrfToken)
 POST  /-/login-oauth-create-user  controllers.LoginWithOpenAuthController.handleCreateUserDialog
+GET   /-/try-link-accounts        controllers.LoginWithOpenAuthController.tryLinkAccounts(tryLinkSecret)
+GET   /-/do-link-accounts         controllers.LoginWithOpenAuthController.doLinkAccounts(doLinkSecret)
 
 GET   /-/impersonate-at-other-site  controllers.ImpersonateController.impersonateAtOtherSite(siteId: Int, userId: Int, goToSiteById: Option[Boolean])
 GET   /-/impersonate-with-key   controllers.ImpersonateController.impersonateWithKey(key: String)

@@ -267,9 +267,25 @@ export const LoginDialogContent = createClassAndFactory({
     // so one won't see an empty page with just a "Log In" button (the .s_LD_SsoB button).
     // This redirect could be done server side, here: [COULDSSOREDIR]. However, then
     // makeSsoUrl() would need to be available server side too.
-    if (settings.effectiveSsoLoginRequiredLogoutUrl) {  // ? [useOnlyCustomIdps]
-      const ssoUrl = makeSsoUrl(store, location.toString());
+    // Dupl code? [SSOINSTAREDIR]  lgi xs  f
+    const ssoUrl = makeSsoUrl(store, location.toString());
+    if (settings.effectiveSsoLoginRequiredLogoutUrl) {
+      // @ifdef DEBUG
+      dieIf(!ssoUrl, 'TyE395KSETRS2');
+      // @endif
       location.assign(ssoUrl);
+    }
+    else if (ssoUrl && eds.isInLoginPopup) {
+      // Then, since this site is Single Sign-On, there'd be nothing to
+      // choose among in this login popup — so redirect to the ssoUrl directly.
+      if (!settings.useOnlyCustomIdps) {
+        // But, wait with this — might change old behavior. Maybe maybe could
+        // cause some bug? DO_AFTER 2020-11-01 always location.assign?
+        // But with a rollback feature flag?
+      }
+      else {
+        location.assign(ssoUrl);
+      }
     }
   },
 
@@ -456,7 +472,8 @@ const OpenAuthButton = createClassAndFactory({
     // creation of  new users from here.
     // (This parameter tells the server to set a certain cookie. Setting it here
     // instead has no effect, don't know why.)
-    const mayNotCreateUser = props.loginReason === 'LoginToAdministrate' ? 'mayNotCreateUser&' : '';
+    const mayNotCreateUser =
+            props.loginReason === 'LoginToAdministrate' ? 'mayNotCreateUser&' : '';
 
     const idp: IdentityProviderPubFields | U = props.idp;
     const urlPath = idp

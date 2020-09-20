@@ -1,0 +1,33 @@
+@(oldEmailAddr: String, newIdentityName: String, idpName: String, tryLinkSecret: String)
+
+<html>
+<body>
+<p>
+ You already have an account here, with email address
+ <tt>@oldEmailAddr</tt>.
+</p>
+
+<p>
+ Now you're trying to login via @idpName,<br>
+ as user @newIdentityName<br>
+ with <b>the same email address</b>.
+</p>
+
+<p>Do you want to link your account at @idpName with your old account here?
+ Then you'll be able to login here, via @idpName.
+</p>
+
+<p>
+<a class="btn btn-default" href="/-/try-link-accounts?tryLinkSecret=@tryLinkSecret">
+ Yes, link accounts
+</a>
+ (you'll get a verification email)
+</p>
+
+<p>
+<a class="btn btn-default" href="javascript:close()">No, cancel, bye</a>
+</p>
+
+</body>
+</html>
+

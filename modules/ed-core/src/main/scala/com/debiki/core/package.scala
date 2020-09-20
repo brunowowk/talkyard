@@ -129,7 +129,8 @@ package object core {
 
   type SiteTx = SiteTransaction  // renaming it, wip
 
-  type OidcProviderId = Int
+  type IdendityProviderId = Int
+
 
   sealed abstract class MarkupLang
   object MarkupLang {

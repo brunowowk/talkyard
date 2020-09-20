@@ -113,11 +113,15 @@ class SettingsController @Inject()(cc: ControllerComponents, edContext: EdContex
         throwBadRequest("TyE703RKT4j7", s"Bad IDP json: $problem")
       }
     }
-    dao.writeTx { (tx, _) =>
+
+    dao.writeTx { (tx, staleStuff) =>
       idps foreach tx.upsertIdentityProvider
       // Later: Uncache only those that got changed.
       dao.uncacheAuthnServices(idps)
+      // These settings are incl in the cached html — settings visible client side.
+      staleStuff.makeAllPagesStale()
     }
+
     loadOidcConfigImpl(request, inclSecret = true)
   }
 

@@ -1220,6 +1220,16 @@ interface UserDetailsStatsGroups extends UserInclDetailsWithStats {
 }
 
 
+interface CreateUserParams {
+  username: St;
+  fullName: St;
+  email: St;
+  authDataCacheKey?: St;
+  anyReturnToUrl?: St;
+  preventClose?: true;
+}
+
+
 interface UiPrefs {
   inp?: UiPrefsIninePreviews;
   fbs?: UiPrefsForumButtons;
@@ -1625,6 +1635,7 @@ interface IdentityProviderPubFields {
 interface IdentityProviderSecretConf extends IdentityProviderPubFields {
   id: number;
   enabled: boolean;
+  adminComments?: St;
   trustVerifiedEmail: boolean;
   linkAccountNoLogin: boolean;
   syncMode: number;
@@ -1868,6 +1879,7 @@ interface UserAccountEmailAddr {
 interface UserAccountLoginMethod {  // Maybe repl w Identity = Scala: JsIdentity?
   loginType: string;
   provider: string;
+  idpAuthUrl?: string;
   email?: string;
   externalId?: string;
 }
