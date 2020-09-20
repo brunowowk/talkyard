@@ -76,7 +76,7 @@ trait AllSettings {
   def begForEmailAddress: Boolean
 
   // Single Sign-On
-  def enableSso: Boolean
+  def enableSso: Boolean  // RENAME to enableTySso ?  different from custom IDP SSO
   def ssoUrl: String
   //  If a user logs in via SSO, but admin approval of new users is required, and the user's
   // account hasn't been approved (or has been rejected), then the user is sent to this page.
@@ -84,7 +84,7 @@ trait AllSettings {
 
   // If login required and SSO enabled, and one logs out, then both 1 and 2 happen:
   //
-  // 1. If one clicks Logout, one gets logged out and threafter redirected to this URL.
+  // 1. If one clicks Logout, one gets logged out and thereafter redirected to this URL.
   //
   // 2. I one is *not* logged in, one gets sent directly to the SSO login url.
   // However, doing this without a logout URL, then, if clicking Logout,
@@ -559,11 +559,13 @@ case class EffectiveSettings(
 
   def loginRequired: Boolean = userMustBeAuthenticated || userMustBeApproved // [2KZMQ5] and then remove, use only userMustBeAuthenticated but rename to mustLoginToRead
 
-  def effectiveSsoLoginRequiredLogoutUrl: Option[String] =  // [350RKDDF5]
+  def effectiveSsoLoginRequiredLogoutUrl: Option[String] = { // [350RKDDF5]
+    COULD // do this also if usingCustomIdpSso
     if (enableSso && userMustBeAuthenticated && ssoLoginRequiredLogoutUrl.nonEmpty)
       Some(ssoLoginRequiredLogoutUrl)
     else
       None
+  }
 
   def allowCorsFromParsed: Seq[String] = {
     EffectiveSettings.getLinesNotCommentedOut(allowCorsFrom)
@@ -590,13 +592,6 @@ case class EffectiveSettings(
   def isEmailAddressAllowed(address: String): Boolean =
     // If SSO enabled, the remote SSO system determines what's allowed and what's not. [7AKBR25]
     if (enableSso) true
-    else if (enableCustomIdps) {
-      COULD // find out if the account is via a custom IDP,
-      // with email address verified — then accept the email addr.
-      // For now, if we *only* use custom IDPs, then they'll decide what
-      // addresses are allowed.
-      useOnlyCustomIdps   // BUGGYBUG
-    }
     else EffectiveSettings.isEmailAddressAllowed(
       address, allowListText = emailDomainWhitelist, blockListText = emailDomainBlacklist)
 

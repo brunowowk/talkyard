@@ -922,12 +922,15 @@ const AccountTab = createFactory<any, any>({
       r.ul({ className: 's_UP_EmLg_LgL' },
         loginMethods.map((method: UserAccountLoginMethod) => {
           const withExternalId = !method.externalId || !isStaff(me) ? null :
-              r.span({}, " external id: ", method.externalId);
+                r.span({}, " external id: ", method.externalId);
+          const idpAuthUrl = !method.idpAuthUrl ? null :
+                r.span({}, " IDP auth url: ", method.idpAuthUrl);
           return r.li({ className: 's_UP_EmLg_LgL_It', key: `${method.provider}:${method.email}` },
             r.span({ className: 's_UP_EmLg_LgL_It_How' }, method.provider),
             t.upp.commaAs,
             r.span({ className: 's_UP_EmLg_LgL_It_Id' }, method.email),
-            withExternalId)
+            withExternalId,
+            idpAuthUrl)
             // r.div({}, Button({}, "Remove")))  — fix later
         }));
 

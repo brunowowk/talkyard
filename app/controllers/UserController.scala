@@ -469,21 +469,29 @@ class UserController @Inject()(cc: ControllerComponents, edContext: EdContext)
     })
 
     var loginMethodsJson = JsArray(identities map { identity: Identity =>
-      val (provider, email) = identity match {
+      val (idpName: St,
+           idpAuthUrl: Opt[St],
+           externalId: Opt[St],
+           emailAddr: Opt[St]) = identity match {
         case oa: OpenAuthIdentity =>
           val details = oa.openAuthDetails
-          (details.providerId, details.email)
+          val customIdp = details.siteCustomIdpId flatMap dao.getIdentityProviderById
+          val idpName = customIdp.map(_.nameOrAlias) getOrElse details.providerId
+          val idpAuthUrl = customIdp.map(_.idp_authorization_url_c)
+          (idpName, idpAuthUrl, Some(details.providerKey), details.email)
         case oid: IdentityOpenId =>
           val details = oid.openIdDetails
-          (details.oidEndpoint, details.email)
+          (details.oidEndpoint, None, Some(details.oidClaimedId), details.email)
         case x =>
-          (classNameOf(x), None)
+          (classNameOf(x), None, None, None)
       }
       Json.obj(  // Typescript: UserAccountLoginMethod
         // COULD instead use: JsIdentity  ?
         "loginType" -> classNameOf(identity),
-        "provider" -> provider,
-        "email" -> JsStringOrNull(email))
+        "provider" -> idpName,
+        "idpAuthUrl" -> idpAuthUrl,
+        "externalId" -> externalId,
+        "email" -> JsStringOrNull(emailAddr))
     })
 
     if (memberInclDetails.passwordHash.isDefined) {
@@ -495,7 +503,7 @@ class UserController @Inject()(cc: ControllerComponents, edContext: EdContext)
 
     if (memberInclDetails.ssoId.isDefined) {
       loginMethodsJson :+= Json.obj(  // UserAccountLoginMethod
-        "loginType" -> "Single Sign-On",
+        "loginType" -> "Talkyard Single Sign-On",
         "provider" -> "external",
         "email" -> memberInclDetails.primaryEmailAddress,
         "externalId" -> JsStringOrNull(memberInclDetails.ssoId))

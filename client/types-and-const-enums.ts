@@ -70,6 +70,12 @@ type Ref = string;
 type RefOrId = Ref | number;
 
 
+const enum UrlPaths {
+  AdminLogin = '/-/admin-login',
+  AuthnRoot = '/-/authn/',
+}
+
+
 const enum ReviewDecision {
   // 1nnn = Accept.
   Accept = 1001,

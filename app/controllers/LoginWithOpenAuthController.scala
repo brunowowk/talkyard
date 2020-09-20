@@ -22,6 +22,7 @@ import com.debiki.core.Prelude._
 import com.github.benmanes.caffeine
 import com.github.scribejava.core.oauth.{OAuth20Service => s_OAuth20Service}
 import com.github.scribejava.core.model.{OAuth2AccessToken => s_OAuth2AccessToken, OAuth2AccessTokenErrorResponse => s_OAuth2AccessTokenErrorResponse, OAuthAsyncRequestCallback => s_OAuthAsyncRequestCallback, OAuthRequest => s_OAuthRequest, Response => s_Response, Verb => s_Verb}
+import com.github.scribejava.apis.openid.{OpenIdOAuth2AccessToken => s_OpenIdOAuth2AccessToken}
 import com.mohiva.play.silhouette
 import com.mohiva.play.silhouette.api.util.HTTPLayer
 import com.mohiva.play.silhouette.api.LoginInfo
@@ -37,12 +38,15 @@ import ed.server.http._
 import ed.server.security.EdSecurity
 import java.io.{IOException => j_IOException}
 import java.util.concurrent.{ExecutionException => j_ExecutionException}
+
+import debiki.dao.SiteDao
 import javax.inject.Inject
 import org.scalactic.{Bad, ErrorMessage, Good, Or}
 import play.api.libs.json._
 import play.api.mvc._
 import play.api.Configuration
 import talkyard.server.authn.{parseCustomUserInfo, parseOidcUserInfo}
+
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
@@ -118,6 +122,12 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
         // BUG COULD use Redis, so the key won't disappear after server restart.
         .expireAfterWrite(65, java.util.concurrent.TimeUnit.MINUTES)
         .build().asInstanceOf[caffeine.cache.Cache[String, OAuth2StateStruct]]
+
+  private val linkAccountsCache = caffeine.cache.Caffeine.newBuilder()
+        .maximumSize(1000)
+        .expireAfterWrite(
+              MaxResetPasswordEmailAgeMinutes, java.util.concurrent.TimeUnit.MINUTES)
+        .build().asInstanceOf[caffeine.cache.Cache[String, (OpenAuthDetails, User)]]
 
 
   private case class StateAndNonce(browserIdOrEmpty: String, nonce: String)
@@ -332,20 +342,58 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
             s"s$siteId: Cannot get/create ScribeJava service for '$providerAlias'")
     }
 
-    val accessTokenPromise = Promise[s_OAuth2AccessToken]()
+    val idAndAccessTokenPromise =
+          Promise[(s_OpenIdOAuth2AccessToken, Opt[OidcIdToken])]()
 
     authnService.getAccessToken(code, new s_OAuthAsyncRequestCallback[s_OAuth2AccessToken] {
-      override def onCompleted(token: s_OAuth2AccessToken): Unit = {
-        accessTokenPromise.success(token)
+      override def onCompleted(tokensParentClass: s_OAuth2AccessToken): Unit = {
+        // TyOidcScribeJavaApi20 uses OpenIdJsonTokenExtractor.instance
+        // as access token extractor; therefore, we can downcast to
+        // OpenIdOAuth2AccessToken.
+        val tokens = tokensParentClass match {
+          case t: s_OpenIdOAuth2AccessToken => t
+          case bad =>
+            die("TyE3M05ATJ4", s"Bad class: ${classNameOf(bad)}, value: $bad")
+        }
+
+        // If this is some custom OAuth2 implementation, with no OIDC
+        // id_token, then, tokens.openIdToken  is null here — fine.
+        // However if the protocol *is* OIDC, then:
+        var anyIdToken: Opt[OidcIdToken] = None
+        if (idp.isOpenIdConnect) {
+          val idTokenStr = tokens.getOpenIdToken
+          if (idTokenStr eq null) {
+            idAndAccessTokenPromise.failure(new QuickMessageException(
+                  s"Token response from OIDC provider has no id_token: ${
+                      tokens} [TyEACSTKNRSP0IDTKN]"))
+            return
+          }
+
+          anyIdToken = Some(new OidcIdToken(idTokenStr))
+
+          // https://openid.net/specs/openid-connect-basic-1_0.html#IDToken
+          SECURITY; SHOULD // check ID token nonce:
+          // nonce:  case-sensitive string
+          //    OPTIONAL. String value used to associate a Client session with
+          //    an ID Token, and to mitigate replay attacks.
+          //    The value is passed through unmodified from the Authentication Request
+          //    to the ID Token. The Client MUST verify that the nonce Claim Value
+          //    is equal to the value of the nonce parameter sent in the
+          //    Authentication Request. If present in the Authentication Request,
+          //    Authorization Servers MUST include a nonce Claim in the ID Token
+          //    with the Claim Value being the nonce value sent in the
+          //    Authentication Request.
+        }
+        idAndAccessTokenPromise.success((tokens, anyIdToken))
       }
       override def onThrowable(t: Throwable): Unit = {
-        accessTokenPromise.failure(t)
+        idAndAccessTokenPromise.failure(t)
       }
     })
 
-    val userInfoPromise = Promise[s_Response]()
+    val userInfoPromise = Promise[(s_Response, Opt[OidcIdToken])]()
 
-    accessTokenPromise.future.onComplete({
+    idAndAccessTokenPromise.future.onComplete({
       case Failure(throwable: Throwable) =>
         val errorResponseException = throwable match {
           case ex @ (_: InterruptedException | _: j_ExecutionException | _: j_IOException) =>
@@ -363,9 +411,9 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
         // Pass our response on to userInfoPromise — it replies to the browser.
         userInfoPromise.failure(errorResponseException)
 
-      case Success(accessToken: s_OAuth2AccessToken) =>
+      case Success((tokens: s_OpenIdOAuth2AccessToken, anyIdToken)) =>
         // Continue below.
-        requestUserInfo(accessToken)
+        requestUserInfo(tokens, anyIdToken)
     })
 
 
@@ -379,13 +427,13 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
     // So, we'll call the user info endpoint.  And we'll include the access
     // token, so the auth server won't just reply Forbidden.
 
-    def requestUserInfo(accessToken: s_OAuth2AccessToken) {
+    def requestUserInfo(tokens: s_OpenIdOAuth2AccessToken, idToken: Opt[OidcIdToken]) {
       val userInfoRequest = new s_OAuthRequest(s_Verb.GET, idp.idp_user_info_url_c)
-      authnService.signRequest(accessToken, userInfoRequest)
+      authnService.signRequest(tokens, userInfoRequest)
 
       authnService.execute(userInfoRequest, new s_OAuthAsyncRequestCallback[s_Response] {
         override def onCompleted(response: s_Response): Unit = {
-          userInfoPromise.success(response)
+          userInfoPromise.success((response, idToken))
         }
         override def onThrowable(t: Throwable): Unit = {
           userInfoPromise.failure(t)
@@ -408,8 +456,9 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
         }
         errorResponse
 
-      case Success(responseFromIdp: s_Response) =>
-        val responseToBrowser = handleUserInfoResponse(request, idp, responseFromIdp)
+      case Success((userInfoResponse: s_Response, anyIdToken: Opt[OidcIdToken])) =>
+        val responseToBrowser = handleUserInfoResponse(
+              request, idp, userInfoResponse, anyIdToken)
         Success(responseToBrowser)
     }
 
@@ -418,10 +467,11 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
 
 
   private def handleUserInfoResponse(request: GetRequest, idp: IdentityProvider,
-          responseFromIdp: s_Response): Result = {
+          userInfoResponse: s_Response, anyIdToken: Opt[OidcIdToken])
+          : Result = {
     import request.siteId
-    val httpStatusCode = responseFromIdp.getCode
-    val body = responseFromIdp.getBody
+    val httpStatusCode = userInfoResponse.getCode
+    val body = userInfoResponse.getBody
 
     if (httpStatusCode < 200 || 299 < httpStatusCode) {
       val randVal = nextRandomString()
@@ -456,16 +506,21 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
                     "TyEUSRINFJSONPARSE", s"Malformed JSON from userinfo endpoint")
           }
 
-    val oauthDetails: OpenAuthDetails = (idp.protocol_c match {
-      case "oidc" => parseOidcUserInfo(json, idp)
-      case "oauth2" => parseCustomUserInfo(json, idp)
-      case x => die("TyE305RKS56", s"Bad auth protocol: $x")
+    import IdentityProvider.{ProtoNameOidc, ProtoNameOAuth2}
+    var oauthDetails: OpenAuthDetails = (idp.protocol_c match {
+      case ProtoNameOidc => parseOidcUserInfo(json, idp)
+      case ProtoNameOAuth2 => parseCustomUserInfo(json, idp)
+      case x => die("TyE5F5RKS56", s"Bad auth protocol: $x")
     }) getOrIfBad { errMsg =>
       return BadReqResult("TyEUSRINFJSONUSE", errMsg)
     }
 
+    anyIdToken foreach { idToken: OidcIdToken =>
+      oauthDetails = oauthDetails.copy(oidcIdToken = Some(idToken))
+    }
+
     tryLoginOrShowCreateUserDialog(
-          request, anyOauthDetails = Some(oauthDetails), isCustomIdp = true)
+          request, anyOauthDetails = Some(oauthDetails), customIdp = Some(idp))
     /*
     val message = s"Response body:\n\n$body\nConstructed profile: $profile\n"
     logger.debug(s"s$siteId: $message")
@@ -709,17 +764,27 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
   }
 
 
+
+
+  // ======================================================================
+  //   Steps after OIDC / OAuth2
+  // ======================================================================
+
+
+  // ------ Login, link accounts, or create new user:
+
+
   private def tryLoginOrShowCreateUserDialog(
         request: GetRequest, oauthDetailsCacheKey: Option[String] = None,
         anyOauthDetails: Option[OpenAuthDetails] = None,
-        isCustomIdp: Boolean = false): Result = {
+        customIdp: Opt[IdentityProvider] = None): Result = {
 
     val dao = request.dao
     val siteSettings = dao.getWholeSiteSettings()
 
     throwForbiddenIf(siteSettings.enableSso,
           "TyESSO0OAUTHLGI", "OpenAuth login disabled, because SSO enabled")
-    throwForbiddenIf(siteSettings.useOnlyCustomIdps && !isCustomIdp,
+    throwForbiddenIf(siteSettings.useOnlyCustomIdps && customIdp.isEmpty,
           "TyECUIDPOAULGI",
           "Default OpenAuth login disabled — using only custom OIDC or OAuth2")
 
@@ -776,10 +841,21 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
           oauthDetails.email.flatMap(dao.loadMemberByEmailOrUsername) match {
             case Some(user) =>
               if (providerHasVerifiedEmail(oauthDetails)) {
-                val loginGrant = dao.createIdentityConnectToUserAndLogin(user, oauthDetails)
+                // UX: Maybe ask if wants to link? See  askIfLinkAccounts()  below.
+                val identity = dao.createIdentityLinkToUser(user, oauthDetails)
+                val loginGrant = MemberLoginGrant(
+                      Some(identity), user, isNewIdentity = true, isNewMember = false)
                 createCookiesAndFinishLogin(request, dao.siteId, loginGrant.user)
               }
               else {
+                // Ask the user if hen wants to link this OAuth identity with
+                // the old account with the same email.
+                // If yes, then, we'll send a verification email, since we don't
+                // know if it's really the user's address.
+                askIfLinkAccounts(oauthDetails, oauthEmailVerified = false,
+                      connectWith = user, customIdp)
+
+                /*
                 // There is no reliable way of knowing that the current user is really
                 // the same one as the old user in the database? We don't know if the
                 // OpenAuth provider has verified the email address.
@@ -821,25 +897,30 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
                 // If the user does *not* own the email address, s/he would be able to
                 // impersonate another user, when his/her new account gets associated with
                 // the old one just because they both claim to use the same email address.
+                */
               }
+
             case None =>
-              if (!siteSettings.allowSignup) {
-                throwForbidden("TyE0SIGNUP02A", "Creation of new accounts is disabled")
-              }
-              else if (!siteSettings.isEmailAddressAllowed(oauthDetails.emailLowercasedOrEmpty)) {
-                throwForbidden(
-                  "TyEBADEMLDMN_-OAUTH_", "You cannot sign up using that email address")
-              }
-              else if (mayCreateNewUser) {
-                //showsCreateUserDialog = true
-                showCreateUserDialog(request, oauthDetails)
-              }
-              else {
-                // COULD show a nice error dialog instead.
-                throwForbidden("DwE5FK9R2", o"""Access denied. You don't have an account
+              // Create new account?
+
+              throwForbiddenIf(!siteSettings.allowSignup,
+                  "TyE0SIGNUP02A", "Creation of new accounts is disabled")
+
+              // Better let IDPs check email domains themselves, if they want to?
+              // Dupl check [305RKTG2]
+              throwForbiddenIf(!oauthDetails.isSiteCustomIdp &&
+                    !siteSettings.isEmailAddressAllowed(
+                        oauthDetails.emailLowercasedOrEmpty),
+                    "TyEBADEMLDMN_-OAUTH_", "You cannot sign up with that email address")
+
+              // COULD show a nice error dialog instead.
+              throwForbiddenIf(!mayCreateNewUser, "DwE5FK9R2",
+                    o"""Access denied. You don't have an account
                     at this site with ${oauthDetails.providerId} login. And you may not
                     create a new account to access this resource.""")
-              }
+
+              //showsCreateUserDialog = true
+              showCreateUserDialog(request, oauthDetails)
           }
         case ex: QuickMessageException =>
           logger.warn(s"Deprecated exception [TyEQMSGEX03]", ex)
@@ -863,13 +944,18 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
       .filterNot(_ equalsIgnoreCase providerId).mkString(", ")
 
 
-  private def providerHasVerifiedEmail(oauthDetails: OpenAuthDetails) = {
+  private def providerHasVerifiedEmail(oauthDetails: OpenAuthDetails): Bo = {
+    if (oauthDetails.isEmailVerifiedByIdp is true) return true
     // Don't know about Facebook and GitHub. Twitter has no emails at all. So for now:
     // (I'm fairly sure Google knows that each Gmail address is owned by the correct user.)
     oauthDetails.providerId == GoogleProvider.ID &&
       oauthDetails.email.exists(_ endsWith "@gmail.com")
     // + known all-email-addrs-have-been-verified email domains from site settings?
   }
+
+
+
+  // ------ Login directly
 
 
   private def createCookiesAndFinishLogin(request: DebikiRequest[_], siteId: SiteId, member: User)
@@ -942,6 +1028,94 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
   }
 
 
+
+  // ------ Link accounts
+
+
+  private def askIfLinkAccounts(oauthDetails: OpenAuthDetails,
+        oauthEmailVerified: Bo, connectWith: User, customIdp: Opt[IdentityProvider])
+        : Result = {
+    unimplIf(oauthEmailVerified, "TyE35KSSK2MS")
+    val linkAccountsCacheSecret = nextRandomString()
+    linkAccountsCache.put(linkAccountsCacheSecret, (oauthDetails, connectWith))
+    Ok(views.html.login.askIfLinkAccounts(
+          oldEmailAddr = connectWith.primaryEmailAddress,
+          newIdentityName = oauthDetails.nameOrUsername getOrElse oauthDetails.email.get,
+          idpName = customIdp.map(_.nameOrAlias) getOrElse oauthDetails.providerId,
+          tryLinkSecret = linkAccountsCacheSecret))
+  }
+
+
+  def tryLinkAccounts(tryLinkSecret: St): Action[Unit] =
+          GetActionAllowAnyoneRateLimited(RateLimits.ResetPassword) {  // or what limits?
+              request =>
+    import request.{dao, siteId}
+
+    val (oauthDetails, user) =
+          Option(linkAccountsCache.getIfPresent(tryLinkSecret))
+            .getOrThrowBadRequest("TyETRYLNACTSEC", s"Bad or expired tryLinkSecret")
+
+    // Don't reuse secrets.
+    linkAccountsCache.invalidate(tryLinkSecret)
+
+    // Verify user owns the account.
+    val emailToVerify = oauthDetails.email.getOrDie(
+          "TyE04KSRT53", s"s$siteId: No email: $oauthDetails")
+
+    // But what about secondary addresses?
+    dieIf(emailToVerify != user.primaryEmailAddress, "TyE39TKRSTRS20")
+
+    val doLinkSecret = nextRandomString()
+    linkAccountsCache.put(doLinkSecret, (oauthDetails, user))
+
+    val email = Email(
+      EmailType.LinkAccounts,
+      createdAt = globals.now(),
+      sendTo = user.primaryEmailAddress,
+      toUserId = Some(user.id),
+      subject = s"[${dao.theSiteName()}] Link accounts?",
+      bodyHtmlText = (emailId: String) => {
+        s"<tt>/-/do-link-accounts?doLinkSecret=${doLinkSecret}</tt>" /*
+        views.html.resetpassword.resetPasswordEmail(
+          userName = user.theUsername,
+          emailId = emailId,
+          siteAddress = request.host,
+          expiresInMinutes = ed.server.MaxResetPasswordEmailAgeMinutes,
+          globals = globals).body */
+      })
+    dao.saveUnsentEmail(email)
+    globals.sendEmail(email, dao.siteId)
+
+    Ok(s"\n\nCheck your email, that is: $emailToVerify" +
+        "\n\n\nYou can close this page.\n\n") as TEXT    // I18N
+  }
+
+
+  def doLinkAccounts(doLinkSecret: St): Action[Unit] =
+          GetActionAllowAnyoneRateLimited(RateLimits.ResetPassword) {  // or what limits?
+            request =>
+    import request.dao
+
+    val (oauthDetails, user) =
+          Option(linkAccountsCache.getIfPresent(doLinkSecret))
+            .getOrThrowBadRequest("TyEDOLNACTSEC", s"Bad or expired doLinkSecret")
+
+    linkAccountsCache.invalidate(doLinkSecret)
+
+    // Don't login — it's better to ask hen to try again, so hen will notice
+    // immediately if won't work, rather than some time later, when hen
+    // has forgotten that hen (tried to) link the accounts, and cannot provide
+    // the support staff with any meaningful info other than "it not work"?
+    dao.createIdentityLinkToUser(user, oauthDetails)
+
+    Ok("\nDone.\n\n\nCan you please try to login again?\n\n") as TEXT
+  }
+
+
+
+  // ------ Create new user
+
+
   private def showCreateUserDialog(request: GetRequest, oauthDetails: OpenAuthDetails): Result = {
     // Re-insert the  OpenAuthDetails, we just removed it (406BM5). A bit double work?
     val cacheKey = nextRandomString()
@@ -970,7 +1144,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
     else {
       // The request is from an OAuth provider login popup. Run some Javascript in the
       // popup that continues execution in the main window (the popup's window.opener)
-      // and closes the popup.
+      // and closes the popup.  [2ABKW24T]
       Ok(views.html.login.closePopupShowCreateUserDialog(
         providerId = oauthDetails.providerId,
         newUserUsername = oauthDetails.username getOrElse "",
@@ -1009,9 +1183,6 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
     val username = (body \ "username").as[String].trim
     val anyReturnToUrl = (body \ "returnToUrl").asOpt[String]
 
-    throwForbiddenIf(!siteSettings.isEmailAddressAllowed(emailAddress),
-      "TyEBADEMLDMN_-OAUTHB", "You cannot sign up using that email address")
-
     val oauthDetailsCacheKey = (body \ "authDataCacheKey").asOpt[String]
           .getOrThrowBadRequest("TyE08GM6", "Auth data cache key missing")
     val oauthDetails = Option(extIdentityCache.getIfPresent(oauthDetailsCacheKey)) match {
@@ -1027,26 +1198,35 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
         die("TyE2GVM0")
     }
 
-    val emailVerifiedAt = oauthDetails.email match {
-      case Some(e) if e.toLowerCase != emailAddress =>
-        throwForbidden("DwE523FU2", o"""When signing up, currently you cannot change your email address
-          from the one you use at ${oauthDetails.providerId}, namely: ${oauthDetails.email}""")
-      case Some(e) =>
+    val emailVerifiedAt = oauthDetails.email flatMap { emailFromIdp =>
+      throwForbiddenIf(emailFromIdp.toLowerCase != emailAddress, "TyE523FU2",
+            o"""When signing up, currently you cannot change your email address
+            from the one you use at ${oauthDetails.providerId}, namely: ${
+            oauthDetails.email}""")
+
         // Twitter provides no email, or I don't know if any email has been verified.
         // We currently use only verified email addresses, from GitHub. [7KRBGQ20]
         // Google and Facebook emails have been verified though.
+        // EDIT: Facebook? Really? & they still do? Exclude here.
         // LinkedIn: Don't know if the email has been verified, so exclude LinkedIn here.
         if (oauthDetails.providerId == GoogleProvider.ID ||
-            oauthDetails.providerId == GitHubProvider.ID ||
-            oauthDetails.providerId == FacebookProvider.ID) {
+            oauthDetails.providerId == GitHubProvider.ID) {
+            // oauthDetails.providerId == FacebookProvider.ID) {
+          Some(request.ctime)
+        }
+        else if (oauthDetails.isEmailVerifiedByIdp is true) {
+          // However we don't know how long ago the IDP verified the email.
           Some(request.ctime)
         }
         else {
           None
         }
-      case None =>
-        None
     }
+
+    // Dupl check [305RKTG2]
+    throwForbiddenIf(oauthDetails.isEmailVerifiedByIdp.isNot(true) &&
+          !siteSettings.isEmailAddressAllowed(emailAddress),
+          "TyEBADEMLDMN_-OAUTHB", "You cannot sign up using that email address")
 
     // More dupl code. [2FKD05]
 
@@ -1134,6 +1314,10 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
       result.discardingCookies(CookiesToDiscardAfterLogin: _*)
     }
   }
+
+
+
+  // ------ Login via Login Origin
 
 
   /** Redirects to and logs in via anyLoginOrigin; then redirects back to this site, with

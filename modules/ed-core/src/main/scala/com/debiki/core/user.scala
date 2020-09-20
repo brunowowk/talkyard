@@ -1556,7 +1556,7 @@ case class IdentityEmailId(
 }
 
 
-case class IdentityOpenId(
+case class IdentityOpenId(   // RENAME to OldOpenIdIdentity?
   id: IdentityId,
   override val userId: UserId,
   openIdDetails: OpenIdDetails) extends Identity {
@@ -1571,7 +1571,7 @@ case class IdentityOpenId(
 }
 
 
-case class OpenIdDetails(
+case class OpenIdDetails(   // RENAME  to OldOpenId10Details? Or inline in
   oidEndpoint: String,
   oidVersion: String,
   oidRealm: String,  // perhaps need not load from db?
@@ -1604,12 +1604,16 @@ case class OpenAuthIdentity(
 }
 
 
+class OidcIdToken(val idTokenStr: St) {
+}
+
+
 @deprecated("now", "Use ExternalSocialProfile instead")
 case class OpenAuthDetails(   // [exp] ok use, country, createdAt missing, fine
   providerId: String,
   providerKey: String,
-  isThisSiteCustomIdp: Boolean,
-  idpDatabaseId: Option[Int] = None,
+  siteCustomIdpId: Option[IdendityProviderId] = None,
+  idpUserId: Option[String] = None,
   username: Option[String] = None,
   firstName: Option[String] = None,
   lastName: Option[String] = None,
@@ -1617,12 +1621,21 @@ case class OpenAuthDetails(   // [exp] ok use, country, createdAt missing, fine
   email: Option[String] = None,
   isEmailVerifiedByIdp: Option[Boolean] = None,
   avatarUrl: Option[String] = None,
-  userInfoJson: Option[JsValue] = None) {
+  userInfoJson: Option[JsObject] = None,
+  oidcIdToken: Opt[OidcIdToken] = None) {
 
-  require(!isThisSiteCustomIdp || idpDatabaseId.isDefined, "TyE39KRGW37")
-  require(email.isDefined || isEmailVerifiedByIdp.isNot(true), "TyE6#KRGL24")
+  require(email.isDefined || isEmailVerifiedByIdp.isNot(true), "TyE6JKRGL24")
+  require(siteCustomIdpId.isDefined == idpUserId.isDefined, "TyE4946RSKTS")
+  require(providerId.nonEmpty == providerKey.nonEmpty, "TyE302MXDJ2J")
+  require(siteCustomIdpId.isDefined != providerId.nonEmpty, "TyE205KRDJ2M")
 
-  def providerIdAndKey = OpenAuthProviderIdKey(providerId, providerKey)
+  def providerIdAndKey: OpenAuthProviderIdKey =
+    OpenAuthProviderIdKey(
+          providerId, providerKey = providerKey,
+          siteCustomIdpId, idpUserId = idpUserId)
+
+  def isSiteCustomIdp: Bo = siteCustomIdpId.isDefined
+  def isServerDefaultIdp: Bo = providerId.nonEmpty
 
   def displayNameOrEmpty: String = {
     fullName.orElse({
@@ -1631,12 +1644,22 @@ case class OpenAuthDetails(   // [exp] ok use, country, createdAt missing, fine
     }).orElse(firstName).orElse(lastName) getOrElse ""
   }
 
+  def nameOrUsername: Opt[St] = {
+    val n = displayNameOrEmpty
+    if (n.nonEmpty) Some(n)
+    else username
+  }
+
   // Mixed case email addresses not allowed, for security reasons. See db fn email_seems_ok.
   def emailLowercasedOrEmpty: String = email.map(_.toLowerCase) getOrElse ""
 }
 
 
-case class OpenAuthProviderIdKey(providerId: String, providerKey: String)
+case class OpenAuthProviderIdKey(
+  providerId: String,
+  providerKey: String,
+  siteCustomIdpId: Option[IdendityProviderId],
+  idpUserId: Option[String])
 
 
 case class MemberLoginGrant(

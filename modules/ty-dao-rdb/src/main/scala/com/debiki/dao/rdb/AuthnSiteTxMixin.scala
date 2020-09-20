@@ -19,8 +19,6 @@ package com.debiki.dao.rdb
 
 import com.debiki.core._
 import com.debiki.core.Prelude._
-import com.debiki.core.Participant.{LowestNonGuestId, LowestAuthenticatedUserId}
-import _root_.java.{util => ju, io => jio}
 import java.{sql => js}
 import scala.collection.immutable
 import scala.collection.mutable.ArrayBuffer
@@ -60,29 +58,35 @@ trait AuthnSiteTxMixin extends SiteTransaction {
       case x: IdentityOpenId =>
         die("TyE306WKUD5", "This cannot happen? OpenID 1.0 is since long gone")
       case x: OpenAuthIdentity =>
-        insertOpenAuthIdentity(siteId, x)
+        insertOpenAuthIdentity(x)
       case x =>
         die("DwE8UYM0", s"Unknown identity type: ${classNameOf(x)}")
     }
   }
 
 
-  private def insertOpenAuthIdentity(
-        otherSiteId: SiteId, identity: OpenAuthIdentity) {
+  private def insertOpenAuthIdentity(identity: OpenAuthIdentity) {
     val sql = """
         insert into identities3(
             ID, SITE_ID, USER_ID, USER_ID_ORIG,
+            site_custom_idp_id_c,
+            idp_user_id_c,
+            idp_user_info_json_c,
             FIRST_NAME, LAST_NAME, FULL_NAME, EMAIL, AVATAR_URL,
             AUTH_METHOD, SECURESOCIAL_PROVIDER_ID, SECURESOCIAL_USER_ID)
         values (
-            ?, ?, ?, ?,
-            ?, ?, ?, ?, ?,
-            ?, ?, ?)"""
+            ?, ?, ?, ?, ?, ?, ? ?, ?, ?, ?, ?, ?, ?, ?) """
+
     val ds = identity.openAuthDetails
     val method = "OAuth" // should probably remove this column
     val values = List[AnyRef](
-      identity.id.toInt.asAnyRef, otherSiteId.asAnyRef, identity.userId.asAnyRef,
+      identity.id.toInt.asAnyRef,
+      siteId.asAnyRef,
       identity.userId.asAnyRef,
+      identity.userId.asAnyRef,
+      ds.siteCustomIdpId.orNullInt,
+      ds.idpUserId.orNullVarchar,
+      ds.userInfoJson.orNullJson,
       ds.firstName.orNullVarchar, ds.lastName.orNullVarchar,
       ds.fullName.orNullVarchar, ds.email.orNullVarchar, ds.avatarUrl.orNullVarchar,
       method, ds.providerId, ds.providerKey)
@@ -158,6 +162,9 @@ trait AuthnSiteTxMixin extends SiteTransaction {
   private val IdentitySelectListItems = i"""
      |id identity_id,
      |user_id,
+     |site_custom_idp_id_c,
+     |idp_user_id_c,
+     |idp_user_info_json_c,  -- for now, for debugging
      |oid_claimed_id,
      |oid_op_local_id,
      |oid_realm,
@@ -181,7 +188,8 @@ trait AuthnSiteTxMixin extends SiteTransaction {
 
     val email = Option(rs.getString("i_email"))
     val anyClaimedOpenId = Option(rs.getString("OID_CLAIMED_ID"))
-    val anyOpenAuthProviderId = Option(rs.getString("SECURESOCIAL_PROVIDER_ID"))
+    val anyOpenAuthProviderId = getOptString(rs, "SECURESOCIAL_PROVIDER_ID")
+    val anySiteCustomIdpId = getOptInt(rs, "site_custom_idp_id_c")
 
     val identityInDb = {
       if (anyClaimedOpenId.nonEmpty) {
@@ -199,13 +207,15 @@ trait AuthnSiteTxMixin extends SiteTransaction {
             email = email,
             country = rs.getString("i_country")))
       }
-      else if (anyOpenAuthProviderId.nonEmpty) {
+      else if (anyOpenAuthProviderId.isDefined || anySiteCustomIdpId.isDefined) {
         OpenAuthIdentity(
           id = identityId,
           userId = userId,
           openAuthDetails = OpenAuthDetails(
-            providerId = anyOpenAuthProviderId.get,
-            providerKey = rs.getString("SECURESOCIAL_USER_ID"),
+            providerId = anyOpenAuthProviderId getOrElse "",
+            providerKey = getOptString(rs, "SECURESOCIAL_USER_ID") getOrElse "",
+            siteCustomIdpId = anySiteCustomIdpId,
+            idpUserId = getOptString(rs, "idp_user_id"),
             firstName = Option(rs.getString("i_first_name")),
             lastName = Option(rs.getString("i_last_name")),
             fullName = Option(rs.getString("i_full_name")),
@@ -227,9 +237,10 @@ trait AuthnSiteTxMixin extends SiteTransaction {
             id_c,
             protocol_c,
             alias_c,
+            enabled_c,
             display_name_c,
             description_c,
-            enabled_c,
+            admin_comments_c,
             trust_verified_email_c,
             link_account_no_login_c,
             gui_order_c,
@@ -245,13 +256,14 @@ trait AuthnSiteTxMixin extends SiteTransaction {
             idp_hosted_domain_c,
             idp_send_user_ip_c)
           values (
-              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           on conflict (site_id_c, id_c) do update set
             protocol_c = excluded.protocol_c,
             alias_c = excluded.alias_c,
+            enabled_c = excluded.enabled_c,
             display_name_c = excluded.display_name_c,
             description_c = excluded.description_c,
-            enabled_c = excluded.enabled_c,
+            admin_comments_c = excluded.admin_comments_c,
             trust_verified_email_c = excluded.trust_verified_email_c,
             link_account_no_login_c = excluded.link_account_no_login_c,
             gui_order_c = excluded.gui_order_c,
@@ -267,8 +279,6 @@ trait AuthnSiteTxMixin extends SiteTransaction {
             idp_hosted_domain_c = excluded.idp_hosted_domain_c,
             idp_send_user_ip_c = excluded.idp_send_user_ip_c  """
 
-    // TODO: UK on proto & alias
-
     val p = identityProvider
 
     val values = List[AnyRef](
@@ -276,9 +286,10 @@ trait AuthnSiteTxMixin extends SiteTransaction {
           p.id_c.asAnyRef,
           p.protocol_c,
           p.alias_c,
+          p.enabled_c.asAnyRef,
           p.display_name_c.orNullVarchar,
           p.description_c.orNullVarchar,
-          p.enabled_c.asAnyRef,
+          p.admin_comments_c.orNullVarchar,
           p.trust_verified_email_c.asAnyRef,
           p.link_account_no_login_c.asAnyRef,
           p.gui_order_c.orNullInt,
@@ -301,7 +312,7 @@ trait AuthnSiteTxMixin extends SiteTransaction {
   }
 
 
-  def loadIdentityProviderByAlias(protocol: String, alias: String): Option[IdentityProvider] = {
+  def loadIdentityProviderByAlias(protocol: St, alias: St): Opt[IdentityProvider] = {
     val query = """
           select * from identity_providers_t
           where site_id_c = ? and protocol_c = ? and alias_c = ? """
@@ -327,9 +338,10 @@ trait AuthnSiteTxMixin extends SiteTransaction {
           id_c = rs.getInt("id_c"),
           protocol_c = rs.getString("protocol_c"),
           alias_c = rs.getString("alias_c"),
+          enabled_c = getBool(rs, "enabled_c"),
           display_name_c = getOptString(rs, "display_name_c"),
           description_c = getOptString(rs, "description_c"),
-          enabled_c = getBool(rs, "enabled_c"),
+          admin_comments_c = getOptString(rs, "admin_comments_c"),
           trust_verified_email_c = getBool(rs, "trust_verified_email_c"),
           link_account_no_login_c = getBool(rs, "link_account_no_login_c"),
           gui_order_c = getOptInt(rs, "gui_order_c"),
