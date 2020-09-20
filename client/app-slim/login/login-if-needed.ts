@@ -86,12 +86,13 @@ export function loginIfNeeded(loginReason, returnToUrl: string, onDone?: () => v
     if (onDone) onDone();
   }
   else {
-    goToSsoPageOrElse(returnToUrl, function() {
+    goToSsoPageOrElse(returnToUrl, loginReason, onDone, function() {
       Server.loadMoreScriptsBundle(() => {
         // People with an account, are typically logged in already, and won't get to here often.
         // Instead, most people here, are new users, so show the signup dialog.
         // (Why won't this result in a compil err? (5BKRF020))
-        debiki2.login.getLoginDialog().openToSignUp(loginReason, returnToUrl, onDone || function() {});
+        debiki2.login.getLoginDialog().openToSignUp(
+              loginReason, returnToUrl, onDone || function() {});
       });
     });
   }
@@ -99,7 +100,7 @@ export function loginIfNeeded(loginReason, returnToUrl: string, onDone?: () => v
 
 
 export function openLoginDialogToSignUp(purpose) {
-  goToSsoPageOrElse(location.toString(), function() {
+  goToSsoPageOrElse(location.toString(), purpose, null, function() {
     Server.loadMoreScriptsBundle(() => {
       debiki2.login.getLoginDialog().openToSignUp(purpose);
     });
@@ -108,7 +109,7 @@ export function openLoginDialogToSignUp(purpose) {
 
 
 export function openLoginDialog(purpose) {
-  goToSsoPageOrElse(location.toString(), function() {
+  goToSsoPageOrElse(location.toString(), purpose, null, function() {
     Server.loadMoreScriptsBundle(() => {
       debiki2.login.getLoginDialog().openToLogIn(purpose);
     });
@@ -116,22 +117,42 @@ export function openLoginDialog(purpose) {
 }
 
 
-function goToSsoPageOrElse(returnToUrl: St, fn: () => void) {
+function goToSsoPageOrElse(returnToUrl: St, toDoWhat, doAfterLogin: () => void,
+        orElse: () => void) {
+  // Dupl code? [SSOINSTAREDIR]
   const store: Store = ReactStore.allData();
   const anySsoUrl: St | U = makeSsoUrl(store, returnToUrl);
   if (anySsoUrl) {
-    location.assign(anySsoUrl);
+    // Currently Talkyard's own SSO opens in the same window, let's keep
+    // that behavior, for backw compatibility. Maybe one day will be a conf val?
+    // However, let custom IDP SSO open in a popup — this works better
+    // with embedded comments, [2ABKW24T]
+    // and if logging in because sumbitting a reply — then, it's nice to
+    // stay on the same page (and navigate away only in a popup win),
+    // so can finish submitting the reply, after login.
+    if (store.settings.enableSso) {
+      location.assign(anySsoUrl);
+    }
+    else {
+      anyContinueAfterLoginCallback = doAfterLogin;
+      const url = origin() + '/-/login-popup?mode=' + toDoWhat +
+            '&isInLoginPopup&returnToUrl=' + returnToUrl;
+      d.i.createLoginPopup(url);
+    }
   }
   else {
-    fn();
+    orElse();
   }
 }
 
 
-export function makeSsoUrl(store: Store, returnToUrlMaybeMagicRedir: St): St | U {
+// onlyIfTySso: Only consider Talkyard's own SSO, not any external OIDC IDP.
+//
+export function makeSsoUrl(store: Store, returnToUrlMaybeMagicRedir: St,
+      onlyIfTySso?: true): St | U {
   const settings: SettingsVisibleClientSide = store.settings;
   const talkyardSsoUrl = settings.enableSso && settings.ssoUrl;
-  const customSsoIdp = settings.useOnlyCustomIdps &&
+  const customSsoIdp = !onlyIfTySso && settings.useOnlyCustomIdps &&
           settings.customIdps?.length === 1 && settings.customIdps[0];
 
   if (!customSsoIdp && !talkyardSsoUrl)
@@ -161,7 +182,7 @@ export function makeSsoUrl(store: Store, returnToUrlMaybeMagicRedir: St): St | U
         .replace('${talkyardPathQueryEscHash}', returnToPathQueryHash))
       : (
         // Later: Incl returnToPathQueryHash
-        `/-/authn/${customSsoIdp.protocol}/${customSsoIdp.alias}`);
+        `${UrlPaths.AuthnRoot}${customSsoIdp.protocol}/${customSsoIdp.alias}`);
 
   return ssoUrlWithReturn;
 }

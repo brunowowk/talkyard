@@ -81,15 +81,6 @@ function getAddressVerificationEmailSentDialog() {
 }
 
 
-interface CreateUserParams {
-  username: string;
-  fullName: string;
-  email: string;
-  authDataCacheKey?: string;
-  anyReturnToUrl?: string;
-  preventClose?: true;
-}
-
 interface CreateUserPostData extends CreateUserParams {
   username: string;
   fullName: string;
@@ -105,7 +96,7 @@ interface CreateUserPostData extends CreateUserParams {
  * the redirect should happen only if an email address verification email is sent,
  * and via a link in that email.
  */
-debiki.internal.showCreateUserDialog = function(params: CreateUserParams) {
+debiki.internal._showCreateUserDialog = function(params: CreateUserParams) {
   getCreateUserDialog().open(params);
 };
 

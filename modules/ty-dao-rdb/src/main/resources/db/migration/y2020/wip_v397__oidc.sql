@@ -29,19 +29,21 @@ end;
 $_$;
 
 
+
 create table identity_providers_t(
   site_id_c int not null,
   id_c int not null,
   protocol_c varchar not null,
   alias_c varchar not null,
+  enabled_c bool not null,
   display_name_c varchar,
   description_c varchar,
   admin_comments_c varchar,
-  enabled_c bool not null,
   trust_verified_email_c bool not null,
   link_account_no_login_c bool not null,
   gui_order_c int,
   sync_mode_c int not null,
+  oidc_config_url varchar,
   idp_config_fetched_at timestamp,
   idp_config_edited_at timestamp,
   idp_config_json_c jsonb,
@@ -60,7 +62,9 @@ create table identity_providers_t(
 
   constraint identityproviders_p_id primary key (site_id_c, id_c),
 
-  constraint identityproviders_r_sites foreign key (site_id_c) references sites3 (id) deferrable,
+  -- fk ix: primary key index
+  constraint identityproviders_r_sites foreign key (site_id_c)
+      references sites3 (id) deferrable,
 
   constraint identityproviders_c_id_gtz check (id_c > 0),
   constraint identityproviders_c_protocol check (protocol_c in ('oidc', 'oauth1', 'oauth2')),
@@ -80,6 +84,9 @@ create table identity_providers_t(
   constraint identityproviders_c_admincomments_len check (
       length(admin_comments_c) between 1 and 5000),
 
+  constraint identityproviders_c_oidcconfigurl_len check (
+      length(oidc_config_url) between 1 and 500),
+
   constraint identityproviders_c_idpconfigjson_len check (
       pg_column_size(idp_config_json_c) between 1 and 11000),
 
@@ -90,7 +97,8 @@ create table identity_providers_t(
       length(idp_access_token_url_c) between 1 and 500),
 
   constraint identityproviders_c_idpaccesstokenauthmethod_in check (
-      idp_access_token_auth_method_c in ('client_secret_basic', 'client_secret_post')),
+      idp_access_token_auth_method_c in (
+          'client_secret_basic', 'client_secret_post')),
 
   constraint identityproviders_c_idpuserinfourl_len check (
       length(idp_user_info_url_c) between 1 and 500),
@@ -117,8 +125,49 @@ create table identity_providers_t(
       length(idp_hosted_domain_c) between 1 and 200)
 );
 
+
 create unique index identityproviders_u_protocol_alias on
     identity_providers_t (site_id_c, protocol_c, alias_c);
 
 create unique index identityproviders_u_displayname on
     identity_providers_t (site_id_c, display_name_c);
+
+
+
+alter table identities3 add column site_custom_idp_id_c int;
+alter table identities3 add column idp_user_id_c varchar;
+alter table identities3 add column idp_user_info_json_c jsonb; -- ren to just ..user_json?
+
+-- alter table identities3 add column oidc_id_token_str varchar;
+-- alter table identities3 add column oidc_id_token_json jsonb;
+
+-- alter table identities3 drop column site_custom_idp_id_c;
+-- alter table identities3 drop column idp_user_id_c ;
+-- alter table identities3 drop column idp_user_info_json_c ;
+
+
+-- fk ix: identities_u_idpid_idpuserid
+alter table identities3 add constraint identities_r_idps
+    foreign key (site_id, site_custom_idp_id_c)
+    references identity_providers_t (site_id_c, id_c) deferrable;
+
+alter table identities3 add constraint identities_c_idpuserid_len check (
+    length(idp_user_id_c) between 1 and 500);
+
+alter table identities3 add constraint identities_c_userinfojson_len check (
+    pg_column_size(idp_user_info_json_c) between 1 and 7000);
+
+-- RENAME  securesocial_provider_id  to server_default_idp_id_c  ?
+alter table identities3 add constraint identities_c_one_type check (
+    num_nonnulls(oid_claimed_id, site_custom_idp_id_c, securesocial_provider_id)
+        = 1);
+
+alter table identities3 add constraint identities_c_customidp_idpuserid check (
+    (site_custom_idp_id_c is null) = (idp_user_id_c is null));
+
+alter table identities3 add constraint identities_c_customidp_idpuserinfo check (
+    (site_custom_idp_id_c is not null) or (idp_user_info_json_c is null));
+
+create unique index identities_u_idpid_idpuserid on
+    identities3 (site_id, site_custom_idp_id_c, idp_user_id_c)
+    where site_custom_idp_id_c is not null;

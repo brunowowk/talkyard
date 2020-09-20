@@ -44,8 +44,17 @@ object JsonUtils {
     }
   }
 
+  def asJsObject(json: JsValue, what: String): JsObject =
+    json match {
+      case o: JsObject => o
+      case _ => throwBadJson("TyE0JSOBJ", s"$what is not a JsObject")
+    }
+
   def readJsObject(json: JsValue, fieldName: String): JsObject =
     readOptJsObject(json, fieldName).getOrElse(throwMissing("EsE1FY90", fieldName))
+
+  def parseOptJsObject(json: JsValue, fieldName: String): Opt[JsObject] =
+    readOptJsObject(json, fieldName)
 
   def readOptJsObject(json: JsValue, fieldName: String): Option[JsObject] =
     (json \ fieldName).toOption map {

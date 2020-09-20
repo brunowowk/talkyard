@@ -1,9 +1,9 @@
 package talkyard.server.authn
 
-import com.debiki.core.{Bo, ErrMsg, Opt, St}
+import com.debiki.core.{Bo, ErrMsg, Opt, St, i64}
 import debiki.JsonUtils._
 import org.scalactic.{Good, Or}
-import play.api.libs.json.JsValue
+import play.api.libs.json.{JsObject, JsValue}
 
 
 /**
@@ -38,8 +38,8 @@ case class OidcClaims(
   // +1 (425) 555-1212 or +56 (2) 687 2400.
   // If phone_number_verified, then, MUST be E.164 format.
   phone_number_verified: Bo, // Like email_verified.
-  address: None.type, // Opt[JsObject], // Preferred postal address, JSON [RFC4627]
-  updated_at: Opt[Long])  // Unix time seconds since user info last updated.
+  address: Opt[JsObject], // Preferred postal address, JSON [RFC4627]
+  updated_at: Opt[i64])  // Unix time seconds since user info last updated.
 
 
 
@@ -65,7 +65,7 @@ object OidcClaims {
           locale = parseOptSt(json, "locale"),
           phone_number = parseOptSt(json, "phone_number"),
           phone_number_verified = parseBo(json, "phone_number_verified", default = false),
-          address = None, // for now
+          address = parseOptJsObject(json, "address"),
           updated_at = parseOptLong(json, "updated_at")))
   }
 

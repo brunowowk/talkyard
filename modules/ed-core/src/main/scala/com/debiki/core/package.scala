@@ -33,16 +33,17 @@ package object core {
   // It's nice when frequently used names are short:
   type St = String
   type Bo = Boolean
-  type I8 = Byte // 'I8' is better than 'Byte', so remembers it is signed
-  type I16 = Short
-  type U16 = Char
-  // type I32 = Int — no, type Int instead, easier to read
-  // type I64 = Long — no, type Long instead, easier to read
-  type F32 = Float
-  type F64 = Double
+  type i8 = Byte // 'I8' is better than 'Byte', so remembers it is signed
+  type i16 = Short
+  type u16 = Char
+  type i32 = Int
+  type i64 = Long
+  type f32 = Float
+  type f64 = Double
   type ErrMsg = ErrorMessage // = String
   type Opt[+A] = Option[A]
   type Vec[+A] = scala.collection.immutable.Vector[A]
+  type MutArrBuf[A] = scala.collection.mutable.ArrayBuffer[A]
 
 
   def isDevOrTest: Boolean = Prelude.isDevOrTest
@@ -112,7 +113,8 @@ package object core {
 
   type SiteTx = SiteTransaction  // renaming it, wip
 
-  type OidcProviderId = Int
+  type IdendityProviderId = Int
+
 
   sealed abstract class MarkupLang
   object MarkupLang {

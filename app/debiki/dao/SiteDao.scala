@@ -218,8 +218,13 @@ class SiteDao(
     val result: R = readWriteTransaction(tx => {
       val result = fn(tx, staleStuff)
 
-      // Refresh database page cache:
-      tx.markPagesHtmlStale(staleStuff.stalePageIdsInDb)
+      if (staleStuff.areAllPagesStale) {
+        tx.bumpSiteVersion()
+      }
+      else {
+        // Refresh database page cache:
+        tx.markPagesHtmlStale(staleStuff.stalePageIdsInDb)
+      }
 
       // [cache_race_counter] Maybe bump mem cache contents counter here,
       // just before this tx ends and the mem cache thus becomes stale?
@@ -230,7 +235,11 @@ class SiteDao(
     }, allowOverQuota)
 
     // Refresh in-memory cache:  [rm_cache_listeners]
-    if (staleStuff.nonEmpty) {
+    if (staleStuff.areAllPagesStale) {
+      // Currently then need to: (although clears unnecessarily much)
+      memCache.clearThisSite()
+    }
+    else if (staleStuff.nonEmpty) {
       staleStuff.staleParticipantIdsInMem foreach { ppId =>
         removeUserFromMemCache(ppId)
       }

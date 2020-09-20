@@ -18,7 +18,6 @@
 package talkyard.server.authn
 
 import com.debiki.core._
-import com.debiki.core.Prelude._
 import com.github.scribejava.core.builder.api.{DefaultApi20 => s_DefaultApi20}
 import com.github.scribejava.core.extractors.{TokenExtractor => s_TokenExtractor}
 import com.github.scribejava.core.model.{OAuth2AccessToken => s_OAuth2AccessToken}
@@ -41,26 +40,22 @@ private case class TyOidcScribeJavaApi20(idp: IdentityProvider) extends s_Defaul
 
   override def getClientAuthentication: s_ClientAuthentication = {
     // See:  https://openid.net/specs/openid-connect-core-1_0.html#ClientAuthentication
-    // There's client_secret_post, which includes in a form-data encoded request body:
-    // >  ...&client_id=...&client_secret=...
-    s_RequestBodyAuthenticationScheme.instance()
-    // There's:  client_secret_basic, uses Basic Auth:
-/// s_HttpBasicAuthenticationScheme.instance()
-    // And also: client_secret_jwt, relies on HMAC SHA.
-    // And: private_key_jwt,
-    // And: none (for Implicit Flow and public clients).
+    // Access method 'client_secret_post' includes this:
+    // "...&client_id=...&client_secret=..."
+    // in a form-data encoded request body. Whilst the other,
+    // 'client_secret_basic', uses a Basic Auth HTTP header — that's better,
+    // then, not in the post data, so is the default.
+    /*
+    if (idp.idp_access_token_auth_method_c == "client_secret_post")
+      s_RequestBodyAuthenticationScheme.instance()
+    else */
+    s_HttpBasicAuthenticationScheme.instance()
+
+    // There's also:
+    // - client_secret_jwt  relies on HMAC SHA,
+    // - private_key_jwt
+    // - none (for Implicit Flow and public clients).
   }
 
-  /*
-  val realmName = "talkyard_keycloak_test_realm"
-
-  val oidcOpOrigin = "http://keycloak:8080"
-  val odicOpConfUrlPath = s"/auth/realms/$realmName/.well-known/openid-configuration"
-  val oidcOpConfUrl = s"$oidcOpOrigin$odicOpConfUrlPath"
-
-  val redirectUrlPath = "/-/login-oidc/keycloak/callback"
-
-  val userInfoUrl = s"$oidcOpOrigin/auth/realms/$realmName/protocol/openid-connect/userinfo"
-   */
 }
 
