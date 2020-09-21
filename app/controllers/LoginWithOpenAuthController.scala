@@ -126,7 +126,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
   private val linkAccountsCache = caffeine.cache.Caffeine.newBuilder()
         .maximumSize(1000)
         .expireAfterWrite(
-              MaxResetPasswordEmailAgeMinutes, java.util.concurrent.TimeUnit.MINUTES)
+             MaxEmailSecretLinkAgeMinutes, java.util.concurrent.TimeUnit.MINUTES)
         .build().asInstanceOf[caffeine.cache.Cache[String, (OpenAuthDetails, User)]]
 
 
@@ -838,14 +838,70 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
 
           // Save canonical email? [canonical-email]
 
+          // (Could ask if the user wants to continue using the email
+          // address and preferred username etc, from the IDP.
+          // Or if hen wants to, say, use a different email address.
+          // But no one has asked about this, so skip for now.)
+
+          // Maybe first verify any email addr provided by the IDP?  [email_privacy]
+          // So cannot figure out if there's already another account
+          // with the same email — unless it's one's own email.
+          // Currently one has to use the email from the IDP anyway,
+          // if it's been verified by the IDP.  [use_idp_email]
+
+
+          /* remove comment:
+          PRIVACY; COULD // verify email directly, always,   DOING NOW ALREADY
+          // instead of only if
+          // there's already an old account with the same email (and otherwise,
+          // later, in the create account dialog).
+          // So won't reveal that there is an existing account with the same
+          // email. However then need to allow trying to create an account,
+          // with an email address that is already in use, always when signing up.
+          // However! If migrating from email+password login, to OIDC,
+          // then, it'd be annoying if everyone has to start creating new
+          // accounts, when they login via OIDC the first time.
+          // So, maybe sometimes one want to try to auto-link first,
+          // rather than starting a create-account process.
+          // [many_emails] [email_privacy]
+           */
+
           oauthDetails.email.flatMap(dao.loadMemberByEmailOrUsername) match {
             case Some(user) =>
-              if (providerHasVerifiedEmail(oauthDetails)) {
+              if (!providerHasVerifiedEmail(oauthDetails)) {
+                sendEmailVerifEmailThenMaybeLinkToUser(oauthDetails, user, request)
+              }
+              else {
+                askIfLinkAccounts(oauthDetails, user, request)
+              }
+
+              /*
+              // Note that the old account also needs to have verified
+              // the email address! Otherwise someone, Mallory, could sign up with
+              // another person's, Vic's, email address, not verify it
+              // (couldn't — not his addr) and then, when Vic later signs up,
+              // Vic's IDP identity would get linked to Mallory's old account
+              // — and Mallory could thereafter login as Vic!
+              // That'd be an "Account fixation attack"? [act_fx_atk]
+              // Reminds of session fixation.
+              //
+              val identityEmailVerified = providerHasVerifiedEmail(oauthDetails)
+              if (identityEmailVerified && user.emailVerified) {
                 // UX: Maybe ask if wants to link? See  askIfLinkAccounts()  below.
+                // Not impossible the user instead wants to link to *another*
+                // account hen might have here, and not use the email from the IDP
+                // this time. But would be very rare — who wants more than one
+                // account anyway!
                 val identity = dao.createIdentityLinkToUser(user, oauthDetails)
                 val loginGrant = MemberLoginGrant(
                       Some(identity), user, isNewIdentity = true, isNewMember = false)
                 createCookiesAndFinishLogin(request, dao.siteId, loginGrant.user)
+              }
+              else if (!user.emailVerified && identityEmailVerified) {
+                // Then what?
+                // Ask the one who logged in, if the old account is really
+                // hens account?
+                // Thereafter, ask if wants to link them?
               }
               else {
                 // Ask the user if hen wants to link this OAuth identity with
@@ -855,7 +911,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
                 askIfLinkAccounts(oauthDetails, oauthEmailVerified = false,
                       connectWith = user, customIdp)
 
-                /*
+                /* OLD: (did C below)
                 // There is no reliable way of knowing that the current user is really
                 // the same one as the old user in the database? We don't know if the
                 // OpenAuth provider has verified the email address.
@@ -873,7 +929,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
                 // From here, when already logged in with the oauthDetails.
                 // (Instead of first logging in via Google then Twitter).
                 // Or C) Or we could just send an email address verification email?
-                // But then we'd reveal the existense of the Twitter account. And what if
+                // But then we'd reveal the existence of the Twitter account. And what if
                 // the user clicks the confirmation link in the email account without really
                 // understanding what s/he is doing? I think A) is safer.
                 // Anyway, for now, simply:
@@ -899,6 +955,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
                 // the old one just because they both claim to use the same email address.
                 */
               }
+              */
 
             case None =>
               // Create new account?
@@ -928,21 +985,21 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
         }
     }
 
-    // COULD avoid deleting cookeis if we have now logged in (which we haven't, if
+    // COULD avoid deleting cookies if we have now logged in (which we haven't, if
     // the create-user dialog is shown: showsCreateUserDialog == true). Otherwise,
     // accidentally reloading the page, results in weird errors, like the xsrf token
     // missing. But supporting page reload here requires fairly many mini fixes,
-    // and maybe is mariginally worse for security? since then someone else,
-    // e.g. an "evil" tech support person, can ask for and resuse the url?
+    // and maybe is marginally worse for security? since then someone else,
+    // e.g. an "evil" tech support person, can ask for and reuse the url?
     result.discardingCookies(CookiesToDiscardAfterLogin: _*)
   }
 
-
+  /*
   private def someProvidersExcept(providerId: String) =
     Seq(GoogleProvider.ID, FacebookProvider.ID, TwitterProvider.ID, GitHubProvider.ID,
       LinkedInProvider.ID)
       .filterNot(_ equalsIgnoreCase providerId).mkString(", ")
-
+  */
 
   private def providerHasVerifiedEmail(oauthDetails: OpenAuthDetails): Bo = {
     if (oauthDetails.isEmailVerifiedByIdp is true) return true
@@ -1032,6 +1089,96 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
   // ------ Link accounts
 
 
+  private def sendEmailVerifEmailThenMaybeLinkToUser(oauthDetails: OpenAuthDetails,
+          user: User, request: GetRequest): Result = {
+    import request.{dao, siteId}
+
+    val emailToVerify = oauthDetails.email.getOrDie(
+        "TyE40BKSRT53", s"s$siteId: No email: $oauthDetails")
+
+    // But what about secondary addresses?
+    dieIf(emailToVerify != user.primaryEmailAddress, "TyE39TKRSTRS20")
+
+    val expMins = MaxEmailSecretLinkAgeMinutes
+    val verifSecret = nextRandomString()
+    linkAccountsCache.put(verifSecret, (oauthDetails, user))
+
+    COULD // use Redis instead
+    //dao.redisCache.saveOneTimeSecretKeyVal(
+    //      emailVerifSecret,  ...serialize-to-json..., expSecs = expMins * 60)
+
+    val subject = s"[${dao.theSiteName()}] Verify your email address"
+    val emailVerifUrl =
+          originOf(request) +
+          controllers.routes.LoginWithOpenAuthController.verifEmailAskIfLinkAccounts(
+              verifSecret = verifSecret).url
+    val email = Email(
+          EmailType.LinkAccounts,
+          createdAt = globals.now(),
+          sendTo = user.primaryEmailAddress,
+          toUserId = Some(user.id),
+          subject = subject,
+          bodyHtmlText = (emailId: String) => {
+            i"""
+              |<tt>
+              |  $emailVerifUrl
+              |</tt>
+              |""" /*
+            views.html.resetpassword.resetPasswordEmail(
+              userName = user.theUsername,
+              emailId = emailId,
+              siteAddress = request.host,
+              expiresInMinutes = ed.server.MaxResetPasswordEmailAgeMinutes,
+              globals = globals).body */
+          })
+    dao.saveUnsentEmail(email)
+    globals.sendEmail(email, dao.siteId)
+
+    Ok(i"""
+          |Verify your email address:
+          |
+          |We sent you an email, title:  $subject
+          |
+          |So, check your email inbox:  $emailToVerify
+          |
+          |You can close this page.
+          |The link in the email expires in $expMins minutes.
+          |""") as TEXT    // I18N
+  }
+
+
+  def verifEmailAskIfLinkAccounts(verifSecret: St): Action[U] =
+          GetActionAllowAnyoneRateLimited(RateLimits.LinkExtIdentity) { request =>
+    val (identity: OpenAuthDetails, user: User) =
+            Option(linkAccountsCache.getIfPresent(verifSecret))
+              .getOrThrowForbidden("TyEVERFEMLLNACCTS", s"Bad or expired verifSecret")
+    // Don't reuse secrets.
+    linkAccountsCache.invalidate(verifSecret)
+    askIfLinkAccounts(identity, user, request)
+  }
+
+
+  def askIfLinkAccounts(identity: OpenAuthDetails, user: User, request: ApiRequest[_])
+          : Result = {
+    import request.dao
+    val userInclDetails = dao.loadTheUserInclDetailsById(user.id)
+    val idpName = dao.getIdentityProviderNameFor(identity)
+          .getOrThrowForbidden("TyEIDPGONE3905", "Identity provider was just deleted?")
+    val linkSecret = nextRandomString()
+    linkAccountsCache.put(linkSecret, (identity, user))
+    Ok(views.html.login.askIfLinkAccounts(
+          tpi = SiteTpi(request),
+          oldEmailAddr = user.primaryEmailAddress,
+          oldEmailVerified = user.emailVerified,
+          oldUsername = user.theUsername,
+          createdOnDate = toIso8601Day(userInclDetails.createdAt.toJavaDate),
+          newIdentityName = identity.nameOrUsername getOrElse identity.email.get,
+          idpName = idpName,
+          linkSecret = linkSecret))
+  }
+
+
+  /*
   private def askIfLinkAccounts(oauthDetails: OpenAuthDetails,
         oauthEmailVerified: Bo, connectWith: User, customIdp: Opt[IdentityProvider])
         : Result = {
@@ -1046,8 +1193,8 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
   }
 
 
-  def tryLinkAccounts(tryLinkSecret: St): Action[Unit] =
-          GetActionAllowAnyoneRateLimited(RateLimits.ResetPassword) {  // or what limits?
+  def sendLinkAccountsVerifEmail(tryLinkSecret: St): Action[Unit] =
+          GetActionAllowAnyoneRateLimited(RateLimits.LinkExtIdentity) {
               request =>
     import request.{dao, siteId}
 
@@ -1088,9 +1235,37 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
 
     Ok(s"\n\nCheck your email, that is: $emailToVerify" +
         "\n\n\nYou can close this page.\n\n") as TEXT    // I18N
-  }
+  }  */
 
 
+  def answerLinkAccounts: Action[JsonOrFormDataBody] = JsonOrFormDataPostAction(
+        RateLimits.LinkExtIdentity, maxBytes = 200, allowAnyone = true,
+        skipXsrfCheck = true, // the linkSecret input is enough
+        ) { request =>
+    import request.dao
+
+    val choiceStr = request.body.getOrThrowBadReq("choice")
+    val shallLink = choiceStr match {
+      case "YesLn" => true
+      case "NoCancel" => false
+      case bad => throwBadParam("TyE305RKFDJ3", "choice", bad)
+    }
+
+    val linkSecret = request.body.getOrThrowBadReq("linkSecret")
+    val (oauthDetails, user) =
+          Option(linkAccountsCache.getIfPresent(linkSecret))
+            .getOrThrowBadRequest("TyEDOLNACTSEC", s"Bad or expired linkSecret")
+    linkAccountsCache.invalidate(linkSecret)
+
+    if (!shallLink) {
+      // Then what? Create new account with same email? Unimplemented.
+      // For now:  (note that this current user controls the email addr of
+      // that other account — so gets to decide what to do with it)
+      Ok("\nOk.\n\nMaybe you'd like to ask the site admins if " +
+          "they can delete that other account?\n\n") as TEXT
+    }
+    else {
+    /*
   def doLinkAccounts(doLinkSecret: St): Action[Unit] =
           GetActionAllowAnyoneRateLimited(RateLimits.ResetPassword) {  // or what limits?
             request =>
@@ -1101,6 +1276,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
             .getOrThrowBadRequest("TyEDOLNACTSEC", s"Bad or expired doLinkSecret")
 
     linkAccountsCache.invalidate(doLinkSecret)
+    */
 
     // Don't login — it's better to ask hen to try again, so hen will notice
     // immediately if won't work, rather than some time later, when hen
@@ -1109,7 +1285,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
     dao.createIdentityLinkToUser(user, oauthDetails)
 
     Ok("\nDone.\n\n\nCan you please try to login again?\n\n") as TEXT
-  }
+  }}
 
 
 
@@ -1199,6 +1375,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
     }
 
     val emailVerifiedAt = oauthDetails.email flatMap { emailFromIdp =>
+      // [use_idp_email]
       throwForbiddenIf(emailFromIdp.toLowerCase != emailAddress, "TyE523FU2",
             o"""When signing up, currently you cannot change your email address
             from the one you use at ${oauthDetails.providerId}, namely: ${

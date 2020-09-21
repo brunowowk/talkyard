@@ -803,7 +803,7 @@ const LoginAndSignupSettings = createFactory({
               "otherwise you might lock yourself out?", r.br(),
               r.span({ style: { fontWeight: useOnlyCustomIdps ? 'bold' : undefined }},
                 "If you lock yourself out, go here: ",
-                r.a({ href: origin() + UrlPaths.AdminLogin }, UrlPaths.AdminLogin))),
+                r.a({ href: location.origin + UrlPaths.AdminLogin }, UrlPaths.AdminLogin))),
           // disabled: // later: disable unless currently logged in via oidc?
           getter: (s: Settings) => s.useOnlyCustomIdps,
           update: (newSettings: Settings, target) => {
@@ -819,13 +819,20 @@ const LoginAndSignupSettings = createFactory({
                 const name = idp.displayName || idp.alias || "No name [TyE702RSG5]";
                 const protoAlias = `${idp.protocol}/${idp.alias}`;
                 return r.li({ className: 's_CuIdpsL_It' },
-                  r.span({ className: 's_CuIdpsL_It_Name' },
-                    name + ': '),
-                  r.span({  className: 's_CuIdpsL_It_Host' },
-                    url_getHost(idp.idpAuthorizationUrl)),
-                  ' ',
-                  r.span({  className: 's_CuIdpsL_It_ProtoAlias' },
-                    protoAlias));
+                  r.div({},
+                    r.span({ className: 's_CuIdpsL_It_Name' },
+                      name + ': '),
+                    r.span({  className: 's_CuIdpsL_It_Host' },
+                      url_getHost(idp.idpAuthorizationUrl)),
+                    ' ',
+                    r.span({  className: 's_CuIdpsL_It_ProtoAlias' },
+                      protoAlias)),
+                  r.div({ className: 's_CuIdpsL_It_TstLn' },
+                    "Login test link: ",
+                    r.code({}, location.origin + UrlPaths.AuthnRoot + protoAlias),
+                    r.br(),
+                    "You can open an incognito window (Ctrl+Shift+N in Chrome), " +
+                    "and paste that link, and try to login"));
                 })),
             r.pre({},
               JSON.stringify(this.state.idps, undefined, 2)),
