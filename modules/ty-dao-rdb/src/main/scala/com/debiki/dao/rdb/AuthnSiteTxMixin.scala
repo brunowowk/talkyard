@@ -75,21 +75,27 @@ trait AuthnSiteTxMixin extends SiteTransaction {
             FIRST_NAME, LAST_NAME, FULL_NAME, EMAIL, AVATAR_URL,
             AUTH_METHOD, SECURESOCIAL_PROVIDER_ID, SECURESOCIAL_USER_ID)
         values (
-            ?, ?, ?, ?, ?, ?, ? ?, ?, ?, ?, ?, ?, ?, ?) """
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) """
 
     val ds = identity.openAuthDetails
-    val method = "OAuth" // should probably remove this column
+    val method = "OAuth" ; CLEAN_UP ; REMOVE // this column
     val values = List[AnyRef](
-      identity.id.toInt.asAnyRef,
-      siteId.asAnyRef,
-      identity.userId.asAnyRef,
-      identity.userId.asAnyRef,
-      ds.siteCustomIdpId.orNullInt,
-      ds.idpUserId.orNullVarchar,
-      ds.userInfoJson.orNullJson,
-      ds.firstName.orNullVarchar, ds.lastName.orNullVarchar,
-      ds.fullName.orNullVarchar, ds.email.orNullVarchar, ds.avatarUrl.orNullVarchar,
-      method, ds.providerId, ds.providerKey)
+          identity.id.toInt.asAnyRef,
+          siteId.asAnyRef,
+          identity.userId.asAnyRef,
+          identity.userId.asAnyRef,
+          ds.siteCustomIdpId.orNullInt,
+          ds.idpUserId.orNullVarchar,
+          ds.userInfoJson.orNullJson,
+          ds.firstName.orNullVarchar,
+          ds.lastName.orNullVarchar,
+          ds.fullName.orNullVarchar,
+          ds.email.orNullVarchar,
+          ds.avatarUrl.orNullVarchar,
+          method,
+          ds.providerId.trimNullVarcharIfBlank,
+          ds.providerKey.trimNullVarcharIfBlank)
+
     runUpdate(sql, values)
   }
 
@@ -144,10 +150,23 @@ trait AuthnSiteTxMixin extends SiteTransaction {
         select $IdentitySelectListItems
         from identities3 i
         where i.site_id = ?
-          and i.securesocial_provider_id = ?
-          and i.securesocial_user_id = ?"""
-    val values = List(siteId.asAnyRef, openAuthKey.providerId, openAuthKey.providerKey)
-    // There's a unique key.
+          and (
+            -- unique ix:  dw1_ids_securesocial  RENAME to identities_u_srvdefidp_uid
+            i.securesocial_provider_id = ? and
+            i.securesocial_user_id = ?
+            or
+            -- unique ix:  identities_u_idpid_idpuserid RENAME to identities_u_custidpid_uid ?
+            i.site_custom_idp_id_c = ? and
+            i.idp_user_id_c = ?
+            ) """
+
+    val values = List(
+          siteId.asAnyRef,
+          openAuthKey.providerId,
+          openAuthKey.providerKey,
+          openAuthKey.siteCustomIdpId.orNullInt,
+          openAuthKey.idpUserId.orNullVarchar)
+
     runQueryFindOneOrNone(query, values, rs => {
       val identity = readIdentity(rs)
       dieIf(!identity.isInstanceOf[OpenAuthIdentity], "TyE5WKB2A1", "Bad class: " + classNameOf(identity))
@@ -215,7 +234,7 @@ trait AuthnSiteTxMixin extends SiteTransaction {
             providerId = anyOpenAuthProviderId getOrElse "",
             providerKey = getOptString(rs, "SECURESOCIAL_USER_ID") getOrElse "",
             siteCustomIdpId = anySiteCustomIdpId,
-            idpUserId = getOptString(rs, "idp_user_id"),
+            idpUserId = getOptString(rs, "idp_user_id_c"),
             firstName = Option(rs.getString("i_first_name")),
             lastName = Option(rs.getString("i_last_name")),
             fullName = Option(rs.getString("i_full_name")),

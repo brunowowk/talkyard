@@ -744,6 +744,8 @@ case class User(
 
   def primaryEmailAddress: String = email
 
+  def emailVerified: Bo = emailVerifiedAt.isDefined
+
   def canReceiveEmail: Boolean =  // dupl (603RU430)
     primaryEmailAddress.nonEmpty && emailVerifiedAt.isDefined
 
@@ -786,6 +788,7 @@ trait MemberMaybeDetails {
   def fullName: Option[String]
   def usernameHashId: String
   def primaryEmailAddress: String
+  def emailVerified: Bo
   def nameOrUsername: String = fullName getOrElse theUsername
 
   def usernameParensFullName: String = fullName match {
@@ -1018,6 +1021,8 @@ case class UserInclDetails( // ok for export
 
   def extIdAsRef: Option[ParsedRef.ExternalId] = extId.map(ParsedRef.ExternalId)
   def ssoIdAsRef: Option[ParsedRef.SingleSignOnId] = ssoId.map(ParsedRef.SingleSignOnId)
+
+  def emailVerified: Bo = emailVerifiedAt.isDefined
 
   def canReceiveEmail: Boolean =  // dupl (603RU430)
     primaryEmailAddress.nonEmpty && emailVerifiedAt.isDefined
@@ -1610,10 +1615,10 @@ class OidcIdToken(val idTokenStr: St) {
 
 @deprecated("now", "Use ExternalSocialProfile instead")
 case class OpenAuthDetails(   // [exp] ok use, country, createdAt missing, fine
-  providerId: String,
-  providerKey: String,
+  providerId: String,   // RENAME  to serverDefaultIdpId
+  providerKey: String,  // RENAME  to idpUserId
   siteCustomIdpId: Option[IdendityProviderId] = None,
-  idpUserId: Option[String] = None,
+  idpUserId: Option[String] = None,  // REMOVE use providerKey instead, renamed to idpUserId
   username: Option[String] = None,
   firstName: Option[String] = None,
   lastName: Option[String] = None,

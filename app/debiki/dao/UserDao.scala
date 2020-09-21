@@ -535,6 +535,18 @@ trait UserDao {
   }
 
 
+  def getIdentityProviderNameFor(identity: OpenAuthDetails): Option[String] = {
+    identity.siteCustomIdpId match {
+      case Some(id) =>
+        // Race: Could be missing, if an admin removed the IDP just now.
+        getIdentityProviderById(id).map(_.nameOrAlias)
+      case None =>
+        // Use the IDs defined by Silhouette, e.g. "google" or "facebook" lowercase :-|
+        Some(identity.providerId)
+    }
+  }
+
+
   def getIdentityProviders(onlyEnabled: Boolean): Seq[IdentityProvider] = {
     COULD_OPTIMIZE // cache
     val idps = loadAllIdentityProviders()
