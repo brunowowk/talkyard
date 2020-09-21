@@ -31,6 +31,7 @@ declare const stringifyQueryString: (s: any) => string;
 
 
 const rFragment = reactCreateFactory(React.Fragment);
+const rFr = rFragment;
 
 // Don't <reference>, causes lots of TS errors.
 declare const Bliss: any;

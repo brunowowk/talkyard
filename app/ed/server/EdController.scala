@@ -79,10 +79,11 @@ class EdController(cc: ControllerComponents, val context: EdContext)
 
 
   def JsonOrFormDataPostAction(rateLimits: RateLimits, maxBytes: Int,
-        allowAnyone: Boolean = false, isLogin: Boolean = false)
+        allowAnyone: Bo = false, isLogin: Bo = false, skipXsrfCheck: Bo = false)
   (f: ApiRequest[JsonOrFormDataBody] => Result): Action[JsonOrFormDataBody] =
     PlainApiAction(new JsonOrFormDataBodyParser(executionContext, cc).parser(maxBytes = maxBytes),
-      rateLimits, allowAnyone = allowAnyone, isLogin = isLogin)(f)
+          rateLimits, allowAnyone = allowAnyone, isLogin = isLogin,
+          skipXsrfCheck = skipXsrfCheck)(f)
 
   def AsyncPostJsonAction(rateLimits: RateLimits, maxBytes: Int,
         allowAnyone: Boolean = false, avoidCookies: Boolean = false)(

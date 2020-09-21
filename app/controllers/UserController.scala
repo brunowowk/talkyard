@@ -471,27 +471,30 @@ class UserController @Inject()(cc: ControllerComponents, edContext: EdContext)
     var loginMethodsJson = JsArray(identities map { identity: Identity =>
       val (idpName: St,
            idpAuthUrl: Opt[St],
-           externalId: Opt[St],
+           idpUsername: Opt[St],
+           idpUserId: Opt[St],
            emailAddr: Opt[St]) = identity match {
         case oa: OpenAuthIdentity =>
           val details = oa.openAuthDetails
           val customIdp = details.siteCustomIdpId flatMap dao.getIdentityProviderById
           val idpName = customIdp.map(_.nameOrAlias) getOrElse details.providerId
+          val idpUsername = details.username
           val idpAuthUrl = customIdp.map(_.idp_authorization_url_c)
-          (idpName, idpAuthUrl, Some(details.providerKey), details.email)
+          (idpName, idpAuthUrl, idpUsername, Some(details.providerKey), details.email)
         case oid: IdentityOpenId =>
           val details = oid.openIdDetails
-          (details.oidEndpoint, None, Some(details.oidClaimedId), details.email)
+          (details.oidEndpoint, None, None, Some(details.oidClaimedId), details.email)
         case x =>
-          (classNameOf(x), None, None, None)
+          (classNameOf(x), None, None, None, None)
       }
       Json.obj(  // Typescript: UserAccountLoginMethod
         // COULD instead use: JsIdentity  ?
         "loginType" -> classNameOf(identity),
         "provider" -> idpName,
         "idpAuthUrl" -> idpAuthUrl,
-        "externalId" -> externalId,
-        "email" -> JsStringOrNull(emailAddr))
+        "idpUsername" -> idpUsername,
+        "idpUserId" -> idpUserId,
+        "idpEmailAddr" -> JsStringOrNull(emailAddr))
     })
 
     if (memberInclDetails.passwordHash.isDefined) {

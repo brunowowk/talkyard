@@ -171,9 +171,13 @@ object EdHttp {  // REFACTOR move to  talkyard.server.http object methods?
   def throwUnprocessableEntity(errCode: String, message: String = "") =
     throw ResultException(UnprocessableEntityResult(errCode, message))
 
-  def throwBadArgument(errCode: String, parameterName: String, problem: String = ""): Nothing =
-    throwBadReq(errCode, "Bad `"+ parameterName +"` value" + (
-      if (problem.nonEmpty) ": " + problem else ""))
+  def throwBadParam(errCode: St, paramName: St, problemOrValue: St = ""): Nothing =
+    throwBadArgument(errCode, paramName, problemOrValue)
+
+  // RENAME to throwBadParam? started, see above.
+  def throwBadArgument(errCode: St, paramName: St, problemOrValue: St = ""): Nothing =
+    throwBadReq(errCode, s"Bad '$paramName' value" + (
+          if (problemOrValue.nonEmpty) s": $problemOrValue" else ""))
 
   def throwBadConfigFile(errCode: String, message: String): Nothing =
     throwNotFound(errCode, message)
@@ -354,6 +358,12 @@ object EdHttp {  // REFACTOR move to  talkyard.server.http object methods?
 
 
   implicit class GetOrThrowBadArgument[A](val underlying: Option[A]) {
+    def getOrThrowForbidden(errorCode: String, message: => String = ""): A = {
+      underlying getOrElse {
+        throwForbidden(errorCode, message)
+      }
+    }
+
     def getOrThrowBadRequest(errorCode: String, message: => String = ""): A = {
       underlying getOrElse {
         throwBadRequest(errorCode, message)

@@ -1878,9 +1878,10 @@ interface UserAccountEmailAddr {
 interface UserAccountLoginMethod {  // Maybe repl w Identity = Scala: JsIdentity?
   loginType: string;
   provider: string;
-  idpAuthUrl?: string;
-  email?: string;
-  externalId?: string;
+  idpAuthUrl?: St;
+  idpUsername?: St;
+  idpEmailAddr?: St;
+  idpUserId?: string;
 }
 
 

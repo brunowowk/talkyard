@@ -355,6 +355,7 @@ class LoginWithPasswordController @Inject()(cc: ControllerComponents, edContext:
 
     REFACTOR // A bit dupl code. [4KDPREU2]  looks 100% fine to break out fn, & place in UserDao.
     // and delete dao.verifyPrimaryEmailAddres().
+    // Or maybe save one-time secrets in Redis instead of email ids? [4KDPREU2]
 
     SECURITY // don't let the same email verif url be used more than once?
     val email = request.dao.loadEmailById(emailId) getOrElse {

@@ -30,7 +30,10 @@ import scala.util.{Failure, Success, Try}
 
 package object core {
 
-  // It's nice when frequently used names are short:
+  // It's nice when frequently used names are short *and* when the IDE
+  // stops auto highlighting them! (IntelliJ does), they're background noise,
+  // only interesting if looking for deails about the code.
+  type U = Unit
   type St = String
   type Bo = Boolean
   type i8 = Byte // 'I8' is better than 'Byte', so remembers it is signed

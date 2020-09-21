@@ -66,9 +66,10 @@ class AuthOidcAppSpec extends DaoAppSuite {
         id_c = 1,
         protocol_c = "oidc",
         alias_c = "odic_alias_site_1",
+        enabled_c = true,
         display_name_c = Some("OIDC Displ Name"),
         description_c = Some("description_c"),
-        enabled_c = true,
+        admin_comments_c = None,
         trust_verified_email_c = true,
         link_account_no_login_c = false,
         gui_order_c = None,
@@ -88,9 +89,10 @@ class AuthOidcAppSpec extends DaoAppSuite {
         id_c = oidcProvider.id_c,
         protocol_c = "oauth2",
         alias_c = oidcProvider.alias_c + "_edited",
+        enabled_c = !oidcProvider.enabled_c,
         display_name_c = oidcProvider.display_name_c.map(_ + " Edited"),
         description_c = oidcProvider.description_c.map(_ + " Edited"),
-        enabled_c = !oidcProvider.enabled_c,
+        admin_comments_c = Some("Some comments"),
         trust_verified_email_c = !oidcProvider.trust_verified_email_c,
         link_account_no_login_c = !oidcProvider.link_account_no_login_c,
         gui_order_c = oidcProvider.gui_order_c.map(_ + 1),
@@ -109,26 +111,26 @@ class AuthOidcAppSpec extends DaoAppSuite {
 
   "insert, find, update, find AuthN providers" - {
     "insert" in {
-      daoSite1.readWriteTransaction { tx =>
+      daoSite1.writeTx { (tx, _) =>
         tx.upsertIdentityProvider(oidcProvider)
       }
     }
 
     "read back" in {
-      daoSite1.readOnlyTransaction { tx =>
+      daoSite1.readTx { tx =>
         val x = tx.loadIdentityProviderByAlias(oidcProvider.protocol_c, oidcProvider.alias_c)
         x.get mustBe oidcProvider
       }
     }
 
     "update" in {
-      daoSite1.readWriteTransaction { tx =>
+      daoSite1.writeTx { (tx, _) =>
         tx.upsertIdentityProvider(oidcProviderEdited)
       }
     }
 
     "read back after update" in {
-      daoSite1.readWriteTransaction { tx =>
+      daoSite1.writeTx { (tx, _) =>
         // The original one is gone.
         tx.loadIdentityProviderByAlias(
               oidcProvider.protocol_c, oidcProvider.alias_c) mustBe None

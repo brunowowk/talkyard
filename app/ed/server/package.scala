@@ -27,7 +27,9 @@ package object server {
 
   val UploadsUrlBasePath = "/-/u/"
 
-  val MaxResetPasswordEmailAgeInHours = 24
+  // Email isn't a secure storage medium — expire secret links somewhat soon.
+  val MaxResetPasswordEmailAgeMinutes = 30   // [exp_emails_time]
+  val MaxEmailSecretLinkAgeMinutes = MaxResetPasswordEmailAgeMinutes   // better name?
 
 
   /** @param html Html for the whole page.
