@@ -29,10 +29,9 @@ package object authn {
           .orElse(claims.preferred_username)
 
     Good(OpenAuthDetails(
-          providerId = "",
-          providerKey = "",
+          serverDefaultIdpId = None,
           siteCustomIdpId = Some(idp.id_c),
-          idpUserId = Some(claims.sub),
+          idpUserId = claims.sub,
           username = claims.preferred_username,
           firstName = claims.given_name,
           lastName = claims.family_name,
@@ -61,10 +60,9 @@ package object authn {
     val firstSpaceLast = s"${firstName.getOrElse("")} ${lastName.getOrElse("")}"
 
     Good(OpenAuthDetails(
-          providerId = "",
-          providerKey = "",
+          serverDefaultIdpId = None,
           siteCustomIdpId = Some(idp.id_c),
-          idpUserId = Some(userIdAtProvider),
+          idpUserId = userIdAtProvider,
           username = Some(username),
           firstName = firstName,
           lastName = lastName,

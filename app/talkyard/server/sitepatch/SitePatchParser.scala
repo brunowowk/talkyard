@@ -586,13 +586,18 @@ case class SitePatchParser(context: EdContext) {
         return Bad("Only OpenAuth identities supported right now [TyE06@T32]")
       }
       val oauDetails = OpenAuthDetails(
-        providerId = readString(jsObj, "providerId"),
-        providerKey = readString(jsObj, "providerKey"),
-        firstName = readOptString(jsObj, "firstName"),
-        lastName = readOptString(jsObj, "lastName"),
-        fullName = readOptString(jsObj, "fullName"),
-        email = readOptString(jsObj, "email"),  // RENAME to emailAddr?
-        avatarUrl = readOptString(jsObj, "avatarUrl"))
+            serverDefaultIdpId = parseOptSt(jsObj, "serverDefaultIdpId", "providerId"),
+            siteCustomIdpId = readOptInt(jsObj, "siteCustomIdpId"),
+            idpUserId = parseSt(jsObj, "idpUserId", altName = "providerKey"),
+            username = readOptString(jsObj, "username"),
+            firstName = readOptString(jsObj, "firstName"),
+            lastName = readOptString(jsObj, "lastName"),
+            fullName = readOptString(jsObj, "fullName"),
+            email = readOptString(jsObj, "email"),  // RENAME to emailAddr?
+            isEmailVerifiedByIdp = parseOptBo(jsObj, "isEmailVerifiedByIdp"),
+            avatarUrl = readOptString(jsObj, "avatarUrl"),
+            userInfoJson = None,  // for now
+            oidcIdToken = None)   // for now
       val identity = OpenAuthIdentity(
         id = identityId,
         userId = readInt(jsObj, "userId"),

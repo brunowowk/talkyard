@@ -30,6 +30,9 @@ $_$;
 
 
 
+-- Identity providers
+
+
 create table identity_providers_t(
   site_id_c int not null,
   id_c int not null,
@@ -134,40 +137,72 @@ create unique index identityproviders_u_displayname on
 
 
 
+-- Identities
+
+
+alter table identities3 rename column securesocial_provider_id to server_def_idp_id_c;
+alter table identities3 rename column securesocial_user_id to idp_user_id_c;
+
+alter table identities3 add column broken_idp_sth_c varchar;
 alter table identities3 add column site_custom_idp_id_c int;
-alter table identities3 add column idp_user_id_c varchar;
-alter table identities3 add column idp_user_info_json_c jsonb; -- ren to just ..user_json?
-
--- alter table identities3 add column oidc_id_token_str varchar;
--- alter table identities3 add column oidc_id_token_json jsonb;
-
--- alter table identities3 drop column site_custom_idp_id_c;
--- alter table identities3 drop column idp_user_id_c ;
--- alter table identities3 drop column idp_user_info_json_c ;
+alter table identities3 add column oidc_id_token_str varchar;
+alter table identities3 add column oidc_id_token_json jsonb;
+alter table identities3 add column idp_user_json_c jsonb;
+alter table identities3 add column idp_username_c varchar;
 
 
--- fk ix: identities_u_idpid_idpuserid
+-- fk ix: identities_u_custidpid_idpusrid
 alter table identities3 add constraint identities_r_idps
     foreign key (site_id, site_custom_idp_id_c)
     references identity_providers_t (site_id_c, id_c) deferrable;
 
+alter table identities3 add constraint identities_c_brokenidpsth check (
+    length(broken_idp_sth_c) between 1 and 500);
+
+alter table identities3 add constraint identities_c_oidcidtokenstr check (
+    length(oidc_id_token_str) between 1 and 7000);
+
+alter table identities3 add constraint identities_c_oidcidtokenjson check (
+    pg_column_size(oidc_id_token_json) between 1 and 7000);
+
 alter table identities3 add constraint identities_c_idpuserid_len check (
     length(idp_user_id_c) between 1 and 500);
 
-alter table identities3 add constraint identities_c_userinfojson_len check (
-    pg_column_size(idp_user_info_json_c) between 1 and 7000);
+alter table identities3 add constraint identities_c_idpuserjson_len check (
+    pg_column_size(idp_user_json_c) between 1 and 7000);
 
--- RENAME  securesocial_provider_id  to server_default_idp_id_c  ?
+alter table identities3 add constraint identities_c_idpusername check (
+    length(idp_username_c) between 1 and 200);
+
+
+update identities3
+    set broken_idp_sth_c = '_old_unknown_'
+    where num_nonnulls(
+            oid_claimed_id,
+            site_custom_idp_id_c,
+            server_def_idp_id_c,
+            broken_idp_sth_c)
+        = 0;
+
 alter table identities3 add constraint identities_c_one_type check (
-    num_nonnulls(oid_claimed_id, site_custom_idp_id_c, securesocial_provider_id)
+    num_nonnulls(
+            oid_claimed_id,
+            site_custom_idp_id_c,
+            server_def_idp_id_c,
+            broken_idp_sth_c)
         = 1);
 
-alter table identities3 add constraint identities_c_customidp_idpuserid check (
-    (site_custom_idp_id_c is null) = (idp_user_id_c is null));
+-- alter table identities3 add constraint identities_c_customidp_idpuserid check (
+--     ((server_def_idp_id_c is null) and (site_custom_idp_id_c is null)
+--         = (idp_user_id_c is null)));
 
-alter table identities3 add constraint identities_c_customidp_idpuserinfo check (
-    (site_custom_idp_id_c is not null) or (idp_user_info_json_c is null));
 
-create unique index identities_u_idpid_idpuserid on
+
+create unique index identities_u_custidpid_idpusrid on
     identities3 (site_id, site_custom_idp_id_c, idp_user_id_c)
     where site_custom_idp_id_c is not null;
+
+drop index dw1_ids_securesocial;
+create unique index identities_u_srvdefidp_usrid on
+    identities3 (site_id, server_def_idp_id_c, idp_user_id_c)
+    where server_def_idp_id_c is not null;

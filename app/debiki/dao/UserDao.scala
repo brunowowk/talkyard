@@ -535,14 +535,14 @@ trait UserDao {
   }
 
 
-  def getIdentityProviderNameFor(identity: OpenAuthDetails): Option[String] = {
+  def getIdentityProviderNameFor(identity: OpenAuthDetails): Opt[St] = {
     identity.siteCustomIdpId match {
       case Some(id) =>
         // Race: Could be missing, if an admin removed the IDP just now.
         getIdentityProviderById(id).map(_.nameOrAlias)
       case None =>
         // Use the IDs defined by Silhouette, e.g. "google" or "facebook" lowercase :-|
-        Some(identity.providerId)
+        identity.serverDefaultIdpId
     }
   }
 

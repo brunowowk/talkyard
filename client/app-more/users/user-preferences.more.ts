@@ -927,11 +927,14 @@ const AccountTab = createFactory<any, any>({
           const idpAuthUrl = !method.idpAuthUrl || !me.isAdmin ? null :
                 rFr({}, r.br(), "IDP auth url: ", r.code({}, method.idpAuthUrl));
 
+          const comma = method.idpUsername && method.idpEmailAddr ? ', ' : '';
+
           return r.li({ className: 's_UP_EmLg_LgL_It',
                       key: `${method.provider}:${method.idpUserId}` },
             r.span({ className: 's_UP_EmLg_LgL_It_How' }, method.provider),
             t.upp.commaAs,
             r.span({ className: 's_UP_EmLg_LgL_It_Id' }, method.idpUsername),
+            comma,
             r.span({ className: 's_UP_EmLg_LgL_It_Id' }, method.idpEmailAddr),
             idpUserId,
             idpAuthUrl)

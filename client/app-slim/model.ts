@@ -1221,6 +1221,8 @@ interface UserDetailsStatsGroups extends UserInclDetailsWithStats {
 
 
 interface CreateUserParams {
+  idpName?: St;
+  idpHasVerifiedEmail?: Bo;
   username: St;
   fullName: St;
   email: St;
@@ -1228,6 +1230,19 @@ interface CreateUserParams {
   anyReturnToUrl?: St;
   preventClose?: true;
 }
+
+
+interface CreateUserDialogContentProps extends CreateUserParams {
+  store: Store;
+  afterLoginCallback;
+  closeDialog: (_?: St) => void;
+  loginReason?;
+  isForGuest?: Bo;
+  isForPasswordUser?: Bo;
+
+  switchBetweenGuestAndPassword?: () => void;
+}
+
 
 
 interface UiPrefs {

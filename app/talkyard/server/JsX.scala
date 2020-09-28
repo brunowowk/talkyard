@@ -336,8 +336,11 @@ object JsX {
           "identityType" -> "OAuth",
           "identityId" -> oauIdty.id,
           "userId" -> oauIdty.userId,
-          "providerId" -> details.providerId,
-          "providerKey" -> details.providerKey,
+          "providerId" -> details.serverDefaultIdpId, // REMOVE
+          "serverDefaultIdpId" -> details.serverDefaultIdpId,
+          "siteCustomIdpId" -> details.siteCustomIdpId,
+          "providerKey" -> details.idpUserId,  // REMOVE
+          "idpUserId" -> details.idpUserId,
           "firstName" -> JsStringOrNull(details.firstName),
           "lastName" -> JsStringOrNull(details.lastName),
           "fullName" -> JsStringOrNull(details.fullName),

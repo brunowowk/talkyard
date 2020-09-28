@@ -1603,7 +1603,9 @@ case class OpenAuthIdentity(
   def usesEmailAddress(emailAddress: String): Boolean =
     openAuthDetails.email is emailAddress
 
-  def loginMethodName: String = openAuthDetails.providerId
+  def loginMethodName: String =
+    openAuthDetails.serverDefaultIdpId getOrElse
+        openAuthDetails.siteCustomIdpId.toString
 
   require(userId >= LowestAuthenticatedUserId, "EdE4KFJ7C")
 }
@@ -1615,32 +1617,32 @@ class OidcIdToken(val idTokenStr: St) {
 
 @deprecated("now", "Use ExternalSocialProfile instead")
 case class OpenAuthDetails(   // [exp] ok use, country, createdAt missing, fine
-  providerId: String,   // RENAME  to serverDefaultIdpId
-  providerKey: String,  // RENAME  to idpUserId
-  siteCustomIdpId: Option[IdendityProviderId] = None,
-  idpUserId: Option[String] = None,  // REMOVE use providerKey instead, renamed to idpUserId
+  serverDefaultIdpId: Opt[ServerDefIdpId] = None,
+  siteCustomIdpId: Opt[SiteCustIdpId] = None,
+  idpUserId: IdentityId,
   username: Option[String] = None,
   firstName: Option[String] = None,
   lastName: Option[String] = None,
   fullName: Option[String] = None,
   email: Option[String] = None,
-  isEmailVerifiedByIdp: Option[Boolean] = None,
+  isEmailVerifiedByIdp: Opt[Bo] = None,
   avatarUrl: Option[String] = None,
-  userInfoJson: Option[JsObject] = None,
+  userInfoJson: Opt[JsObject] = None,
   oidcIdToken: Opt[OidcIdToken] = None) {
 
+  require(serverDefaultIdpId.forall(_.trim.nonEmpty), "TyE395RKTE2")
+  require(siteCustomIdpId.forall(_ >= 1), "TyE395RKTE3")
+  require(siteCustomIdpId.isDefined != serverDefaultIdpId.isDefined, "TyE205KRDJ2M")
   require(email.isDefined || isEmailVerifiedByIdp.isNot(true), "TyE6JKRGL24")
-  require(siteCustomIdpId.isDefined == idpUserId.isDefined, "TyE4946RSKTS")
-  require(providerId.nonEmpty == providerKey.nonEmpty, "TyE302MXDJ2J")
-  require(siteCustomIdpId.isDefined != providerId.nonEmpty, "TyE205KRDJ2M")
 
   def providerIdAndKey: OpenAuthProviderIdKey =
     OpenAuthProviderIdKey(
-          providerId, providerKey = providerKey,
-          siteCustomIdpId, idpUserId = idpUserId)
+          serverDefaultIdpId = serverDefaultIdpId,
+          siteCustomIdpId = siteCustomIdpId,
+          idpUserId = idpUserId)
 
   def isSiteCustomIdp: Bo = siteCustomIdpId.isDefined
-  def isServerDefaultIdp: Bo = providerId.nonEmpty
+  def isServerDefaultIdp: Bo = serverDefaultIdpId.isDefined
 
   def displayNameOrEmpty: String = {
     fullName.orElse({
@@ -1661,10 +1663,14 @@ case class OpenAuthDetails(   // [exp] ok use, country, createdAt missing, fine
 
 
 case class OpenAuthProviderIdKey(
-  providerId: String,
-  providerKey: String,
-  siteCustomIdpId: Option[IdendityProviderId],
-  idpUserId: Option[String])
+  serverDefaultIdpId: Opt[ServerDefIdpId],
+  siteCustomIdpId: Opt[IdendityProviderId],
+  idpUserId: IdentityId) {
+
+  require(serverDefaultIdpId.isDefined != siteCustomIdpId.isDefined, "TyE305MKTFJ4")
+  require(idpUserId.nonEmpty, "TyE39M5RK4TKE")
+  require(serverDefaultIdpId.forall(_.nonEmpty), "TyE395KRS")
+}
 
 
 case class MemberLoginGrant(

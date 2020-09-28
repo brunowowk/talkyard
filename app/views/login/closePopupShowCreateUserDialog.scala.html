@@ -15,7 +15,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *@
 
-@(providerId: String, newUserUsername: String, newUserFullName: String, newUserEmail: String,
+@(idpName: String, idpHasVerifiedEmail: Boolean, newUserUsername: String,
+    newUserFullName: String, newUserEmail: String,
     authDataCacheKey: String, anyContinueToUrl: Option[String])
 
 @* Closes the OpenAuth or OpenID login popup window, and opens a create user dialog
@@ -36,7 +37,8 @@
 <!-- views/login/closePopupShowCreateUserDialog.scala.html -->
 <script type='text/javascript'>
     window.opener.debiki2.morebundle.showCreateUserDialog({
-      providerId: '@providerId',
+      idpName: '@idpName',
+      idpHasVerifiedEmail: @idpHasVerifiedEmail,
       username: '@newUserUsername',
       fullName: '@newUserFullName',
       email: '@newUserEmail',

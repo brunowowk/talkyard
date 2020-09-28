@@ -69,11 +69,13 @@ trait AuthnSiteTxMixin extends SiteTransaction {
     val sql = """
         insert into identities3(
             ID, SITE_ID, USER_ID, USER_ID_ORIG,
+            server_def_idp_id_c,
             site_custom_idp_id_c,
             idp_user_id_c,
-            idp_user_info_json_c,
+            idp_user_json_c,
+            idp_username_c,
             FIRST_NAME, LAST_NAME, FULL_NAME, EMAIL, AVATAR_URL,
-            AUTH_METHOD, SECURESOCIAL_PROVIDER_ID, SECURESOCIAL_USER_ID)
+            AUTH_METHOD)
         values (
             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) """
 
@@ -84,36 +86,46 @@ trait AuthnSiteTxMixin extends SiteTransaction {
           siteId.asAnyRef,
           identity.userId.asAnyRef,
           identity.userId.asAnyRef,
+          ds.serverDefaultIdpId.trimOrNullVarchar,
           ds.siteCustomIdpId.orNullInt,
-          ds.idpUserId.orNullVarchar,
+          ds.idpUserId,
           ds.userInfoJson.orNullJson,
+          ds.username.orNullVarchar,
           ds.firstName.orNullVarchar,
           ds.lastName.orNullVarchar,
           ds.fullName.orNullVarchar,
           ds.email.orNullVarchar,
           ds.avatarUrl.orNullVarchar,
-          method,
-          ds.providerId.trimNullVarcharIfBlank,
-          ds.providerKey.trimNullVarcharIfBlank)
+          method)
 
     runUpdate(sql, values)
   }
 
 
-  private[rdb] def updateOpenAuthIdentity(identity: OpenAuthIdentity)
-        (implicit connection: js.Connection) {
+  private[rdb] def updateOpenAuthIdentity(identity: OpenAuthIdentity) {
     val sql = """
-      update identities3 set
-        USER_ID = ?, AUTH_METHOD = ?,
-        FIRST_NAME = ?, LAST_NAME = ?, FULL_NAME = ?, EMAIL = ?, AVATAR_URL = ?
-      where ID = ? and SITE_ID = ?"""
+          update identities3 set
+            USER_ID = ?, AUTH_METHOD = ?,
+            idp_user_json_c = ?,
+            idp_username_c = ?,
+            FIRST_NAME = ?, LAST_NAME = ?, FULL_NAME = ?, EMAIL = ?, AVATAR_URL = ?
+          where ID = ? and SITE_ID = ?"""
+
     val ds = identity.openAuthDetails
-    val method = "OAuth" // should probably remove this column
+    val method = "OAuth" ; CLEAN_UP; REMOVE // this column
     val values = List[AnyRef](
-      identity.userId.asAnyRef, method, ds.firstName.orNullVarchar, ds.lastName.orNullVarchar,
-      ds.fullName.orNullVarchar, ds.email.orNullVarchar, ds.avatarUrl.orNullVarchar,
-      identity.id.toInt.asAnyRef, siteId.asAnyRef)
-    db.update(sql, values)
+          identity.userId.asAnyRef, method,
+          ds.userInfoJson.orNullJson,
+          ds.username.orNullVarchar,
+          ds.firstName.orNullVarchar,
+          ds.lastName.orNullVarchar,
+          ds.fullName.orNullVarchar,
+          ds.email.orNullVarchar,
+          ds.avatarUrl.orNullVarchar,
+          identity.id.toInt.asAnyRef,
+          siteId.asAnyRef)
+
+    runUpdate(sql, values)
   }
 
 
@@ -151,29 +163,26 @@ trait AuthnSiteTxMixin extends SiteTransaction {
         from identities3 i
         where i.site_id = ?
           and (
-            -- unique ix:  dw1_ids_securesocial  RENAME to identities_u_srvdefidp_uid
-            i.securesocial_provider_id = ? and
-            i.securesocial_user_id = ?
+            i.server_def_idp_id_c = ?  -- ix: identities_u_srvdefidp_idpusrid
             or
-            -- unique ix:  identities_u_idpid_idpuserid RENAME to identities_u_custidpid_uid ?
-            i.site_custom_idp_id_c = ? and
-            i.idp_user_id_c = ?
-            ) """
+            i.site_custom_idp_id_c = ?  -- ix: identities_u_custidpid_idpusrid
+            )
+          and i.idp_user_id_c = ? """
 
     val values = List(
           siteId.asAnyRef,
-          openAuthKey.providerId,
-          openAuthKey.providerKey,
+          openAuthKey.serverDefaultIdpId.orNullVarchar,
           openAuthKey.siteCustomIdpId.orNullInt,
-          openAuthKey.idpUserId.orNullVarchar)
+          openAuthKey.idpUserId)
 
     runQueryFindOneOrNone(query, values, rs => {
       val identity = readIdentity(rs)
       dieIf(!identity.isInstanceOf[OpenAuthIdentity], "TyE5WKB2A1", "Bad class: " + classNameOf(identity))
-      val openAuthIdentity = identity.asInstanceOf[OpenAuthIdentity]
-      dieIf(openAuthIdentity.openAuthDetails.providerId != openAuthKey.providerId, "TyE2KWB01")
-      dieIf(openAuthIdentity.openAuthDetails.providerKey != openAuthKey.providerKey, "TyE2KWB02")
-      openAuthIdentity
+      val idty = identity.asInstanceOf[OpenAuthIdentity]
+      dieIf(idty.openAuthDetails.serverDefaultIdpId != openAuthKey.serverDefaultIdpId, "TyE2KWB01")
+      dieIf(idty.openAuthDetails.siteCustomIdpId != openAuthKey.siteCustomIdpId, "TyE2KW503R")
+      dieIf(idty.openAuthDetails.idpUserId != openAuthKey.idpUserId, "TyE2KWB02")
+      idty
     })
   }
 
@@ -181,17 +190,17 @@ trait AuthnSiteTxMixin extends SiteTransaction {
   private val IdentitySelectListItems = i"""
      |id identity_id,
      |user_id,
+     |server_def_idp_id_c
      |site_custom_idp_id_c,
      |idp_user_id_c,
-     |idp_user_info_json_c,  -- for now, for debugging
+     |idp_user_json_c,  -- for now, for debugging
      |oid_claimed_id,
      |oid_op_local_id,
      |oid_realm,
      |oid_endpoint,
      |oid_version,
-     |securesocial_user_id,
-     |securesocial_provider_id,
      |auth_method,
+     |idp_username_c,
      |first_name i_first_name,
      |last_name i_last_name,
      |full_name i_full_name,
@@ -207,7 +216,7 @@ trait AuthnSiteTxMixin extends SiteTransaction {
 
     val email = Option(rs.getString("i_email"))
     val anyClaimedOpenId = Option(rs.getString("OID_CLAIMED_ID"))
-    val anyOpenAuthProviderId = getOptString(rs, "SECURESOCIAL_PROVIDER_ID")
+    val anyOpenAuthProviderId = getOptString(rs, "server_def_idp_id_c")
     val anySiteCustomIdpId = getOptInt(rs, "site_custom_idp_id_c")
 
     val identityInDb = {
@@ -231,10 +240,10 @@ trait AuthnSiteTxMixin extends SiteTransaction {
           id = identityId,
           userId = userId,
           openAuthDetails = OpenAuthDetails(
-            providerId = anyOpenAuthProviderId getOrElse "",
-            providerKey = getOptString(rs, "SECURESOCIAL_USER_ID") getOrElse "",
+            serverDefaultIdpId = anyOpenAuthProviderId,
             siteCustomIdpId = anySiteCustomIdpId,
-            idpUserId = getOptString(rs, "idp_user_id_c"),
+            idpUserId = getOptString(rs, "idp_user_id_c").getOrElse(""),
+            username = Option(rs.getString("idp_username_c")),
             firstName = Option(rs.getString("i_first_name")),
             lastName = Option(rs.getString("i_last_name")),
             fullName = Option(rs.getString("i_full_name")),

@@ -374,8 +374,10 @@ class UserController @Inject()(cc: ControllerComponents, edContext: EdContext)
         case oauthId: OpenAuthIdentity =>
           val details: OpenAuthDetails = oauthId.openAuthDetails
           Json.obj(
-            "providerId" -> details.providerId,
-            "providerKey" -> details.providerKey,
+            "providerId" -> details.serverDefaultIdpId,
+            "siteCustomIdpId" -> details.siteCustomIdpId,
+            "providerKey" -> details.idpUserId,
+            "username" -> JsStringOrNull(details.username),
             "firstName" -> JsStringOrNull(details.firstName),
             "lastName" -> JsStringOrNull(details.lastName),
             "fullName" -> JsStringOrNull(details.fullName),
@@ -477,10 +479,10 @@ class UserController @Inject()(cc: ControllerComponents, edContext: EdContext)
         case oa: OpenAuthIdentity =>
           val details = oa.openAuthDetails
           val customIdp = details.siteCustomIdpId flatMap dao.getIdentityProviderById
-          val idpName = customIdp.map(_.nameOrAlias) getOrElse details.providerId
+          val idpName = customIdp.map(_.nameOrAlias) getOrElse details.serverDefaultIdpId
           val idpUsername = details.username
           val idpAuthUrl = customIdp.map(_.idp_authorization_url_c)
-          (idpName, idpAuthUrl, idpUsername, Some(details.providerKey), details.email)
+          (idpName, idpAuthUrl, idpUsername, Some(details.idpUserId), details.email)
         case oid: IdentityOpenId =>
           val details = oid.openIdDetails
           (details.oidEndpoint, None, None, Some(details.oidClaimedId), details.email)
@@ -501,14 +503,14 @@ class UserController @Inject()(cc: ControllerComponents, edContext: EdContext)
       loginMethodsJson :+= Json.obj(  // UserAccountLoginMethod
         "loginType" -> "Local",
         "provider" -> "password",
-        "email" -> memberInclDetails.primaryEmailAddress)
+        "idpEmailAddr" -> memberInclDetails.primaryEmailAddress)
     }
 
     if (memberInclDetails.ssoId.isDefined) {
       loginMethodsJson :+= Json.obj(  // UserAccountLoginMethod
         "loginType" -> "Talkyard Single Sign-On",
         "provider" -> "external",
-        "email" -> memberInclDetails.primaryEmailAddress,
+        "idpEmailAddr" -> memberInclDetails.primaryEmailAddress,
         "externalId" -> JsStringOrNull(memberInclDetails.ssoId))
     }
 

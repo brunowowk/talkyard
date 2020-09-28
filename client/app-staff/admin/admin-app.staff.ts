@@ -87,7 +87,7 @@ const SsoTestComponent = createReactClass(<any> {
     const settings = store.settings;
     const me: Myself = store.me;
     const ssoUrl = login.makeSsoUrl(
-            store, window.location.toString(), true /* onlyIfTySso */);
+            store, window.location.toString(), true /* forTySsoTest */);
 
     const noSsoUrlInfo = ssoUrl ? null :
       rFragment({},

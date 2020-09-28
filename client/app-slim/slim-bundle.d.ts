@@ -227,7 +227,7 @@ declare namespace debiki2 {
     function openLoginDialogToSignUp(purpose);
     function openLoginDialog(purpose);
 
-    function makeSsoUrl(store: Store, returnToUrl: St, onlyIfTySso?: true): St;
+    function makeSsoUrl(store: Store, returnToUrl: St, forTySsoTest?: true): St;
   }
 
   function reactGetRefRect(ref): Rect;

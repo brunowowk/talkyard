@@ -95,8 +95,8 @@ object JsonUtils {
   } */
 
 
-  def parseSt(json: JsValue, fieldName: St): St =
-    readString(json, fieldName)
+  def parseSt(json: JsValue, fieldName: St, altName: St = ""): St =
+    parseOptSt(json, fieldName, altName) getOrElse throwMissing("TyE5S204RTE", fieldName)
 
   def readString(json: JsValue, fieldName: String): String =
     readOptString(json, fieldName) getOrElse throwMissing("EsE7JTB3", fieldName)
@@ -105,7 +105,7 @@ object JsonUtils {
   def parseOptSt(json: JsValue, fieldName: St, altName: St = ""): Opt[St] =
     readOptString(json, fieldName, altName)
 
-  def readOptString(json: JsValue, fieldName: String, altName: String = ""): Option[String] = {
+  def readOptString(json: JsValue, fieldName: St, altName: St = ""): Opt[St] = {
     val primaryResult = readOptStringImpl(json, fieldName)
     if (primaryResult.isDefined || altName.isEmpty) primaryResult
     else readOptStringImpl(json, altName)

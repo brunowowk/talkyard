@@ -149,10 +149,10 @@ function goToSsoPageOrElse(returnToUrl: St, toDoWhat, doAfterLogin: () => void,
 // onlyIfTySso: Only consider Talkyard's own SSO, not any external OIDC IDP.
 //
 export function makeSsoUrl(store: Store, returnToUrlMaybeMagicRedir: St,
-      onlyIfTySso?: true): St | U {
+      forTySsoTest?: true): St | U {
   const settings: SettingsVisibleClientSide = store.settings;
-  const talkyardSsoUrl = settings.enableSso && settings.ssoUrl;
-  const customSsoIdp = !onlyIfTySso && settings.useOnlyCustomIdps &&
+  const talkyardSsoUrl = (settings.enableSso || forTySsoTest) && settings.ssoUrl;
+  const customSsoIdp = !forTySsoTest && settings.useOnlyCustomIdps &&
           settings.customIdps?.length === 1 && settings.customIdps[0];
 
   if (!customSsoIdp && !talkyardSsoUrl)

@@ -722,11 +722,11 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
 
     REFACTOR; CLEAN_UP // stop using CommonSocialProfile. Use ExternalSocialProfile instead,  (TYSOCPROF)
     // it has useful things like username, about user text, etc.
-    val oauthDetails = profile match {
+    var oauthDetails = profile match {
       case p: CommonSocialProfile =>
         OpenAuthDetails(
-          providerId = p.loginInfo.providerID,
-          providerKey = p.loginInfo.providerKey,
+          serverDefaultIdpId = Some(p.loginInfo.providerID),
+          idpUserId = p.loginInfo.providerKey,
           username = None, // not incl in CommonSocialProfile
           firstName = p.firstName,
           lastName = p.lastName,
@@ -735,14 +735,26 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
           avatarUrl = p.avatarURL)
       case p: ExternalSocialProfile =>
         OpenAuthDetails(
-          providerId = p.providerId,
-          providerKey = p.providerUserId,
+          serverDefaultIdpId = Some(p.providerId),
+          idpUserId = p.providerUserId,
           username = p.username,
           firstName = p.firstName,
           lastName = p.lastName,
           fullName = p.fullName,
           email = if (p.primaryEmailIsVerified is true) p.primaryEmail else None,  // [7KRBGQ20]
           avatarUrl = p.avatarUrl)
+    }
+
+    // Don't know about Facebook and GitHub. Twitter has no emails at all.
+    // We currently use only verified email addresses, from GitHub. [7KRBGQ20]
+    // Gmail addresses have been verified by Google.
+    // Facebook? Who knows what they do.
+    // LinkedIn: Don't know if the email has been verified; exclude LinkedIn here.
+    if ((oauthDetails.serverDefaultIdpId.is(GoogleProvider.ID) &&
+            oauthDetails.email.exists(_ endsWith "@gmail.com"))
+        || oauthDetails.serverDefaultIdpId.is(GitHubProvider.ID)) {
+      oauthDetails = oauthDetails.copy(isEmailVerifiedByIdp = Some(true))
+      COULD // include  [known_verified_email_domains]  too.
     }
 
     val result = anyReturnToSiteOrigin match {
@@ -868,7 +880,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
 
           oauthDetails.email.flatMap(dao.loadMemberByEmailOrUsername) match {
             case Some(user) =>
-              if (!providerHasVerifiedEmail(oauthDetails)) {
+              if (oauthDetails.isEmailVerifiedByIdp isNot true) {
                 sendEmailVerifEmailThenMaybeLinkToUser(oauthDetails, user, request)
               }
               else {
@@ -973,7 +985,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
               // COULD show a nice error dialog instead.
               throwForbiddenIf(!mayCreateNewUser, "DwE5FK9R2",
                     o"""Access denied. You don't have an account
-                    at this site with ${oauthDetails.providerId} login. And you may not
+                    at this site with ${oauthDetails.serverDefaultIdpId} login. And you may not
                     create a new account to access this resource.""")
 
               //showsCreateUserDialog = true
@@ -1000,15 +1012,6 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
       LinkedInProvider.ID)
       .filterNot(_ equalsIgnoreCase providerId).mkString(", ")
   */
-
-  private def providerHasVerifiedEmail(oauthDetails: OpenAuthDetails): Bo = {
-    if (oauthDetails.isEmailVerifiedByIdp is true) return true
-    // Don't know about Facebook and GitHub. Twitter has no emails at all. So for now:
-    // (I'm fairly sure Google knows that each Gmail address is owned by the correct user.)
-    oauthDetails.providerId == GoogleProvider.ID &&
-      oauthDetails.email.exists(_ endsWith "@gmail.com")
-    // + known all-email-addrs-have-been-verified email domains from site settings?
-  }
 
 
 
@@ -1292,7 +1295,12 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
   // ------ Create new user
 
 
-  private def showCreateUserDialog(request: GetRequest, oauthDetails: OpenAuthDetails): Result = {
+  private def showCreateUserDialog(request: GetRequest, oauthDetails: OpenAuthDetails)
+          : Result = {
+    import request.dao
+    val idpName = dao.getIdentityProviderNameFor(oauthDetails)
+          .getOrThrowForbidden("TyEIDPGONE3907", "Identity provider just deleted?")
+
     // Re-insert the  OpenAuthDetails, we just removed it (406BM5). A bit double work?
     val cacheKey = nextRandomString()
     extIdentityCache.put(cacheKey, oauthDetails)
@@ -1310,6 +1318,8 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
       // showing a login dialog somewhere inside the iframe). ))
       Ok(views.html.login.showCreateUserDialog(
         SiteTpi(request),
+        idpName = idpName,
+        idpHasVerifiedEmail = oauthDetails.isEmailVerifiedByIdp.is(true),
         serverAddress = s"//${request.host}",
         newUserUsername = oauthDetails.username getOrElse "",
         newUserFullName = oauthDetails.displayNameOrEmpty,
@@ -1322,7 +1332,8 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
       // popup that continues execution in the main window (the popup's window.opener)
       // and closes the popup.  [2ABKW24T]
       Ok(views.html.login.closePopupShowCreateUserDialog(
-        providerId = oauthDetails.providerId,
+        idpName = idpName,
+        idpHasVerifiedEmail = oauthDetails.isEmailVerifiedByIdp.is(true),
         newUserUsername = oauthDetails.username getOrElse "",
         newUserFullName = oauthDetails.displayNameOrEmpty,
         newUserEmail = oauthDetails.emailLowercasedOrEmpty,
@@ -1378,17 +1389,10 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
       // [use_idp_email]
       throwForbiddenIf(emailFromIdp.toLowerCase != emailAddress, "TyE523FU2",
             o"""When signing up, currently you cannot change your email address
-            from the one you use at ${oauthDetails.providerId}, namely: ${
+            from the one you use at ${oauthDetails.serverDefaultIdpId}, namely: ${
             oauthDetails.email}""")
 
-        // Twitter provides no email, or I don't know if any email has been verified.
-        // We currently use only verified email addresses, from GitHub. [7KRBGQ20]
-        // Google and Facebook emails have been verified though.
-        // EDIT: Facebook? Really? & they still do? Exclude here.
-        // LinkedIn: Don't know if the email has been verified, so exclude LinkedIn here.
-        if (oauthDetails.providerId == GoogleProvider.ID ||
-            oauthDetails.providerId == GitHubProvider.ID) {
-            // oauthDetails.providerId == FacebookProvider.ID) {
+        if (oauthDetails.isEmailVerifiedByIdp is true) {
           Some(request.ctime)
         }
         else if (oauthDetails.isEmailVerifiedByIdp is true) {
