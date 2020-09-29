@@ -41,7 +41,12 @@ trait AllSettings {
   def inviteOnly: Boolean
   def allowSignup: Boolean
   def enableCustomIdps: Boolean
+
+  /** Can only be enabled, if enableCustomIdps true; there's a db constraint:
+    * settings_c_enable_use_only_custom_idps
+    */
   def useOnlyCustomIdps: Boolean
+
   def allowLocalSignup: Boolean  // RENAME? to  enableLocalSignup. Allow/deny for authz instead?
   def allowGuestLogin: Boolean   // RENAME  to  enableGuestLogin.
   def enableGoogleLogin: Boolean
@@ -589,11 +594,14 @@ case class EffectiveSettings(
     allowGuestLogin && !userMustBeAuthenticated && !userMustBeApproved &&
       !inviteOnly && allowSignup && !enableSso && !useOnlyCustomIdps
 
-  def isEmailAddressAllowed(address: String): Boolean =
-    // If SSO enabled, the remote SSO system determines what's allowed and what's not. [7AKBR25]
-    if (enableSso) true
+  def isEmailAddressAllowed(address: String): Boolean = {
+    // With SSO, the remote SSO system determines what's allowed and
+    // what's not.  [alwd_eml_doms]
+    val enableSsoOrOnlyCustIdps = enableSso || useOnlyCustomIdps
+    if (enableSsoOrOnlyCustIdps) true
     else EffectiveSettings.isEmailAddressAllowed(
       address, allowListText = emailDomainWhitelist, blockListText = emailDomainBlacklist)
+  }
 
   /** Finds any invalid setting value, or invalid settings configurations. */
   def findAnyError: Option[String] = {

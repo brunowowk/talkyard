@@ -96,7 +96,7 @@ class SettingsController @Inject()(cc: ControllerComponents, edContext: EdContex
   }
 
 
-  def loadOidcConfig: Action[Unit] = StaffGetAction { request: GetRequest =>
+  def loadOidcConfig: Action[U] = AdminGetAction { request: GetRequest =>
     loadOidcConfigImpl(request,
           inclSecret = true)  // later: Add a "briefNoSecrets=true" param, then excl secret?
   }
@@ -126,7 +126,7 @@ class SettingsController @Inject()(cc: ControllerComponents, edContext: EdContex
   }
 
 
-  private def loadOidcConfigImpl(request: DebikiRequest[_], inclSecret: Boolean): p_Result = {
+  private def loadOidcConfigImpl(request: DebikiRequest[_], inclSecret: Bo): p_Result = {
     val idps = request.dao.readTx(_.loadAllIdentityProviders())
           .sortBy(idp => idp.gui_order_c getOrElse (idp.id_c + 1000 * 1000))
     val json = JsArray(idps map JsX.JsIdentityProviderSecretConf)

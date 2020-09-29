@@ -417,11 +417,13 @@ case class SettingsToSave(
   require(languageCode.forall(_.forall(_.isAToZUnderscoreOnly)), "Weird lang code [TyE2WKBYF]")
   require(languageCode.forall(_.forall(_.length < 10)), "Too long language code [TyE2WKBP5]")
 
-  /*
-  require(useOnlyCustomIdps.map((onlyCustom: Option[Boolean] =>
-    onlyCustom.isNot(true) || enableCustomIdps.flatMap(_).getOrElse(false)
-  ), "Cannot use only custom IDPs, when IDPs not enabled [TyE3054RSMD]")
-  */
+  // There's also a db constraint: settings_c_enable_use_only_custom_idps.
+  useOnlyCustomIdps foreach { onlyCustom: Opt[Bo] =>
+    if (onlyCustom is true) {
+      require(enableCustomIdps.exists(_ is true),
+            "Cannot use only custom IDPs, when IDPs not enabled [TyE3054RSMD]")
+    }
+  }
 
   if (contribAgreement.contains(Some(ContribAgreement.UseOnThisSiteOnly)) &&
       contentLicense.isDefined) {

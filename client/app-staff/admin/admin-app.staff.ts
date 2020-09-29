@@ -976,7 +976,7 @@ const LoginAndSignupSettings = createFactory({
         // ---- Email domain allowlist and blocklist
 
         // Hide, if SSO enabled or only custom OIDC / OAuth2 allowed
-        // — then, the SSO system determines if allowed or not. [7AKBR25]
+        // — then, the SSO system determines if allowed or not.  [alwd_eml_doms]
 
         enableSsoOrOnlyCustIdps || !allowSignup ? null : rFragment({},
         r.h2({ className: 'col-sm-offset-3 s_A_Ss_S_Ttl'},

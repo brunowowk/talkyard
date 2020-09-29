@@ -109,7 +109,7 @@ class InviteController @Inject()(cc: ControllerComponents, edContext: EdContext)
           "TyESSOINV", "Cannot invite people, when Single Sing-On enabled")
 
     throwForbiddenIf(settings.useOnlyCustomIdps,
-          "TyECUIDPINV", "Cannot invite people, when using only custom OIDC or OAuth2")
+          "TyECUIDPINV", "Cannot invite people, when using only site custom IDP")
 
     val toEmailAddresses = toEmailAddressesRaw.map(_.trim.dropRightWhile(",;" contains _)) filter { addr =>
       // Skip comment lines. People might save their send-invites-to lists in a file with

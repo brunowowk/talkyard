@@ -30,6 +30,60 @@ trait AuthnSiteDaoMixin {
   self: SiteDao =>
 
 
+
+  // ----- Identity Providers
+
+
+  def upsertIdentityProvider(identityProvider: IdentityProvider): AnyProblem = {
+    COULD_OPTIMIZE // clear idp cache
+    readWriteTransaction(_.upsertIdentityProvider(identityProvider))
+  }
+
+
+  def getIdentityProviderByAlias(protocol: St, alias: St): Option[IdentityProvider] = {
+    COULD_OPTIMIZE // cache, use getIdentityProviders()
+    readOnlyTransaction(_.loadIdentityProviderByAlias(protocol, alias))
+  }
+
+
+  def getIdentityProviderById(id: IdendityProviderId): Option[IdentityProvider] = {
+    getIdentityProviders(onlyEnabled = false).find(_.id_c == id)
+  }
+
+
+  def getIdentityProviderNameFor(identity: OpenAuthDetails): Opt[St] = {
+    identity.siteCustomIdpId match {
+      case Some(id) =>
+        // Race: Could be missing, if an admin removed the IDP just now.
+        getIdentityProviderById(id).map(_.nameOrAlias)
+      case None =>
+        // Use the IDs defined by Silhouette, e.g. "google" or "facebook" lowercase :-|
+        identity.serverDefaultIdpId
+    }
+  }
+
+
+  def getIdentityProviders(onlyEnabled: Boolean): Seq[IdentityProvider] = {
+    COULD_OPTIMIZE // cache
+    val idps = loadAllIdentityProviders()
+    if (onlyEnabled) idps.filter(_.enabled_c)
+    else idps
+  }
+
+
+  def loadAllIdentityProviders(): Seq[IdentityProvider] = {
+    readOnlyTransaction(_.loadAllIdentityProviders())
+  }
+
+
+
+  // ----- User Identities
+
+
+
+  // ----- ScribeJava services
+
+
   def uncacheAuthnServices(idpsToUncache: Seq[IdentityProvider]): Unit = {
     // Later: Uncache only idpsToUncache (both by id, and by protocol + alias).
     memCache.remove(authnServicesKey)
@@ -73,6 +127,7 @@ trait AuthnSiteDaoMixin {
 
     Some(service)
   }
+
 
 
   private val authnServicesKey: MemCacheKey = MemCacheKey(siteId, "AzN")

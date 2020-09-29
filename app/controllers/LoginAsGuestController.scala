@@ -53,7 +53,7 @@ class LoginAsGuestController @Inject()(cc: ControllerComponents, edContext: EdCo
     throwForbiddenIf(settings.enableSso,
           "TyESSO0GST", "Guest login disabled, when SSO enabled")
     throwForbiddenIf(settings.useOnlyCustomIdps,
-          "TyECUIDPGST", "Guest login disabled, when using only custom OIDC or OAuth2")
+          "TyECUIDPGST", "Guest login disabled, when using only site custom IDP")
     throwForbiddenIf(!settings.allowSignup,
           "TyE0SIGNUP03", "Creation of new accounts is disabled")
     throwForbiddenIf(!settings.isGuestLoginAllowed,

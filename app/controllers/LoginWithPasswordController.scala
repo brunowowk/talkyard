@@ -156,7 +156,7 @@ class LoginWithPasswordController @Inject()(cc: ControllerComponents, edContext:
     throwForbiddenIf(siteSettings.enableSso,
       "TyESSO0OSIGNUP", "Creation of local password accounts is disabled, because Single Sign-On enabled")
     throwForbiddenIf(siteSettings.useOnlyCustomIdps, "TyECUSTIDP",
-        "Password login disabled — using only custom OIDC or OAuth2")
+        "Password login disabled — using only site custom IDP")
     throwForbiddenIf(!siteSettings.allowSignup, "TyE0SIGNUP01", "Creation of new accounts is disabled")
     throwForbiddenIf(!siteSettings.allowLocalSignup,
       "TyE0LCALSIGNUP", "Creation of local password accounts has been disabled")

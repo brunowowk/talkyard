@@ -187,12 +187,9 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
       // For now:
       throwForbidden("TyE6RKT0456", s"No $protocol provider with alias: '$providerAlias'")
 
-      /*
+      /* If is server default provider, not site custom:
       if (globals.anyLoginOrigin isSomethingButNot originOf(request)) {
-        // OAuth providers have been configured to send authentication data to
-        // anyLoginOrigin.get. We'll redirect to that origin, login there, and it'll
-        // send the user back here.
-        return loginViaLoginOrigin(providerAlias, request.underlying)
+        // Redirect to the login origin, see:  loginViaLoginOrigin().
       } */
     }
 
@@ -523,11 +520,6 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
     tryLoginOrShowCreateUserDialog(
           request, anyOauthDetails = Some(oauthDetails), anyCustomIdp = Some(idp),
           anyReturnToUrl = Some(returnToUrl))
-    /*
-    val message = s"Response body:\n\n$body\nConstructed profile: $profile\n"
-    logger.debug(s"s$siteId: $message")
-    Ok(message)
-     */
   }
 
 
@@ -608,7 +600,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
       "TyESSO0OAUTH", "OpenAuth authentication disabled, because SSO enabled")
     throwForbiddenIf(settings.useOnlyCustomIdps,
       "TyECUIDPDEFOAU", o"""Default OpenAuth authentication disabled,
-        when using only custom OIDC or OAuth2""")
+        when using only site custom IDP""")
 
     if (globals.anyLoginOrigin isSomethingButNot originOf(request)) {
       // OAuth providers have been configured to send authentication data to another
@@ -805,7 +797,7 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
           "TyESSO0OAUTHLGI", "OpenAuth login disabled, because SSO enabled")
     throwForbiddenIf(siteSettings.useOnlyCustomIdps && anyCustomIdp.isEmpty,
           "TyECUIDPOAULGI",
-          "Default OpenAuth login disabled — using only custom OIDC or OAuth2")
+          "Default OpenAuth login disabled — using only site custom IDP")
 
     def cacheKey = oauthDetailsCacheKey.getOrDie("DwE90RW215")
     val oauthDetails: OpenAuthDetails =
@@ -842,169 +834,71 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
             "TyEUNEXEXC", s"Error logging in: ${problem.message}")
         }
         else problem.anyException.get match {
-        // (Fix indentation below later.)
-        case DbDao.IdentityNotFoundException =>
-          // Let's check if the user already exists, and if so, create an OpenAuth identity
-          // and connect it to the user.
-          // Details: The user might exist, although no identity was found, if the user
-          // has already 1) signed up as an email + password user, or 2) accepted an invitation
-          // (when the user clicks the invitation link in the invite email, a user entry
-          // is created automatically, without the user having to login). Or 3) signed up
-          // via e.g. a Twitter account and specified a Google email address like
-          // user@whatever.com (but not gmail.com) and then later attempts to log in
-          // via this Google email address instead of via Twitter.
-          // Or perhaps 4) signed up via a Facebook account that uses a Google address
-          // like user@whatever.com (but not gmail.com).
+          case DbDao.IdentityNotFoundException =>
+            // Let's check if the user already exists, and if so, create a IDP identity
+            // and connect it to the user.
+            // Details: The user might exist, although no identity was found, if
+            // the user has already 1) signed up as an email + password user,
+            // or 2) accepted an invitation (when the user clicks the invitation
+            // link in the invite email, a user entry is created automatically,
+            // without the user having to login).
+            // Or 3) signed up via an external IDP, say, Twitter or FB, with an
+            // account that use a, say, Google email address, like
+            // user@some.gsuite.domain or gmail.com, and now later attempts to
+            // log in via the Google email address instead of via Twitter or FB.
 
-          // Save canonical email? [canonical-email]
+            // Save canonical email? [canonical-email]
 
-          // (Could ask if the user wants to continue using the email
-          // address and preferred username etc, from the IDP.
-          // Or if hen wants to, say, use a different email address.
-          // But no one has asked about this, so skip for now.)
+            // (Could ask if the user wants to continue using the email
+            // address and preferred username etc, from the IDP.
+            // Or if hen wants to, say, use a different email address.
+            // But no one has asked about this, so skip for now.)
 
-          // Maybe first verify any email addr provided by the IDP?  [email_privacy]
-          // So cannot figure out if there's already another account
-          // with the same email — unless it's one's own email.
-          // Currently one has to use the email from the IDP anyway,
-          // if it's been verified by the IDP.  [use_idp_email]
+            // Maybe first verify any email addr provided by the IDP?  [email_privacy]
+            // Before loading member by username or email addr.
+            // So cannot figure out if there's already another account
+            // with the same email — unless it's *one's own* email.
+            // Currently one has to use the email from the IDP anyway,
+            // if it's been verified by the IDP.  [use_idp_email]
 
+            oauthDetails.email.flatMap(dao.loadMemberByEmailOrUsername) match {
+              case Some(user) =>
+                if (oauthDetails.isEmailVerifiedByIdp isNot true) {
+                  sendEmailVerifEmailThenMaybeLinkToUser(oauthDetails, user, request)
+                }
+                else {
+                  askIfLinkAccounts(oauthDetails, user, request)
+                }
+              case None =>
+                // Create new account?
 
-          /* remove comment:
-          PRIVACY; COULD // verify email directly, always,   DOING NOW ALREADY
-          // instead of only if
-          // there's already an old account with the same email (and otherwise,
-          // later, in the create account dialog).
-          // So won't reveal that there is an existing account with the same
-          // email. However then need to allow trying to create an account,
-          // with an email address that is already in use, always when signing up.
-          // However! If migrating from email+password login, to OIDC,
-          // then, it'd be annoying if everyone has to start creating new
-          // accounts, when they login via OIDC the first time.
-          // So, maybe sometimes one want to try to auto-link first,
-          // rather than starting a create-account process.
-          // [many_emails] [email_privacy]
-           */
+                throwForbiddenIf(!siteSettings.allowSignup,
+                    "TyE0SIGNUP02A", "Creation of new accounts is disabled")
 
-          oauthDetails.email.flatMap(dao.loadMemberByEmailOrUsername) match {
-            case Some(user) =>
-              if (oauthDetails.isEmailVerifiedByIdp isNot true) {
-                sendEmailVerifEmailThenMaybeLinkToUser(oauthDetails, user, request)
-              }
-              else {
-                askIfLinkAccounts(oauthDetails, user, request)
-              }
+                // Better let IDPs check email domains themselves, if they want to?
+                // Dupl check [alwd_eml_doms]
+                throwForbiddenIf(!oauthDetails.isSiteCustomIdp &&
+                      !siteSettings.isEmailAddressAllowed(
+                          oauthDetails.emailLowercasedOrEmpty),
+                      "TyEBADEMLDMN_-OAUTH_", "You may sign up with that email address")
 
-              /*
-              // Note that the old account also needs to have verified
-              // the email address! Otherwise someone, Mallory, could sign up with
-              // another person's, Vic's, email address, not verify it
-              // (couldn't — not his addr) and then, when Vic later signs up,
-              // Vic's IDP identity would get linked to Mallory's old account
-              // — and Mallory could thereafter login as Vic!
-              // That'd be an "Account fixation attack"? [act_fx_atk]
-              // Reminds of session fixation.
-              //
-              val identityEmailVerified = providerHasVerifiedEmail(oauthDetails)
-              if (identityEmailVerified && user.emailVerified) {
-                // UX: Maybe ask if wants to link? See  askIfLinkAccounts()  below.
-                // Not impossible the user instead wants to link to *another*
-                // account hen might have here, and not use the email from the IDP
-                // this time. But would be very rare — who wants more than one
-                // account anyway!
-                val identity = dao.createIdentityLinkToUser(user, oauthDetails)
-                val loginGrant = MemberLoginGrant(
-                      Some(identity), user, isNewIdentity = true, isNewMember = false)
-                createCookiesAndFinishLogin(request, dao.siteId, loginGrant.user)
-              }
-              else if (!user.emailVerified && identityEmailVerified) {
-                // Then what?
-                // Ask the one who logged in, if the old account is really
-                // hens account?
-                // Thereafter, ask if wants to link them?
-              }
-              else {
-                // Ask the user if hen wants to link this OAuth identity with
-                // the old account with the same email.
-                // If yes, then, we'll send a verification email, since we don't
-                // know if it's really the user's address.
-                askIfLinkAccounts(oauthDetails, oauthEmailVerified = false,
-                      connectWith = user, customIdp)
+                // COULD show a nice error dialog instead.
+                throwForbiddenIf(!mayCreateNewUser, "DwE5FK9R2",
+                      o"""Access denied. You don't have an account at this site
+                      with ${oauthDetails.serverDefaultIdpId} login. And you may not
+                      create a new account to access this resource.""")
 
-                /* OLD: (did C below)
-                // There is no reliable way of knowing that the current user is really
-                // the same one as the old user in the database? We don't know if the
-                // OpenAuth provider has verified the email address.
-                // What we can do, is to:
-                // A) instruct the user to 1) login as the user in the database
-                // (say, via Twitter, in case 3 above). And then 2) click
-                // an Add-OpenAuth/OpenID-account button, and then login again in the
-                // way s/he attempted to do right now. Then, since the user is logged
-                // in at both providers (e.g. both Twitter and Google, in case 3 above)
-                // we can safely connect this new OpenAuth identity to the user account
-                // already in the database. This is how StackOverflow does it.
-                //  See: http://stackoverflow.com/questions/6487418/
-                //                  how-to-handle-multiple-openids-for-the-same-user
-                // Or B) Perhaps we can ask the user to login as the Twitter user directly?
-                // From here, when already logged in with the oauthDetails.
-                // (Instead of first logging in via Google then Twitter).
-                // Or C) Or we could just send an email address verification email?
-                // But then we'd reveal the existence of the Twitter account. And what if
-                // the user clicks the confirmation link in the email account without really
-                // understanding what s/he is doing? I think A) is safer.
-                // Anyway, for now, simply:
-                // (Use "user" for the provider's account, and "account" for the account in
-                // this server)
-                val emailAddress = oauthDetails.email.getOrDie("EsE2FPK8")
-                throwForbidden("DwE7KGE32", "\n"+o"""You already have an account with email address
-                  $emailAddress, and your ${oauthDetails.providerId} user has the same
-                  email address. Since you already have an account here, please don't login via
-                  ${oauthDetails.providerId} —
-                  instead login using your original login method, e.g. ${
-                    someProvidersExcept(oauthDetails.providerId)},
-                  or username and password. — I hope you remember which one.""" +
-                  "\n\n" +
-                  o"""The reason I do not currently let you login via the
-                  ${oauthDetails.providerId} user with email $emailAddress
-                  is that I don't know if ${oauthDetails.providerId}
-                  has verified that the email address is really yours — because if it is not,
-                  then you would get access to someone else's account, if I did let you login.""" +
-                  "\n\n")
-                // If the user does *not* own the email address, s/he would be able to
-                // impersonate another user, when his/her new account gets associated with
-                // the old one just because they both claim to use the same email address.
-                */
-              }
-              */
+                //showsCreateUserDialog = true
+                showCreateUserDialog(request, oauthDetails)
+            }
 
-            case None =>
-              // Create new account?
+          case ex: QuickMessageException =>
+            logger.warn(s"Deprecated exception [TyEQMSGEX03]", ex)
+            throwForbidden("TyEQMSGEX03", ex.getMessage)
 
-              throwForbiddenIf(!siteSettings.allowSignup,
-                  "TyE0SIGNUP02A", "Creation of new accounts is disabled")
-
-              // Better let IDPs check email domains themselves, if they want to?
-              // Dupl check [305RKTG2]
-              throwForbiddenIf(!oauthDetails.isSiteCustomIdp &&
-                    !siteSettings.isEmailAddressAllowed(
-                        oauthDetails.emailLowercasedOrEmpty),
-                    "TyEBADEMLDMN_-OAUTH_", "You cannot sign up with that email address")
-
-              // COULD show a nice error dialog instead.
-              throwForbiddenIf(!mayCreateNewUser, "DwE5FK9R2",
-                    o"""Access denied. You don't have an account
-                    at this site with ${oauthDetails.serverDefaultIdpId} login. And you may not
-                    create a new account to access this resource.""")
-
-              //showsCreateUserDialog = true
-              showCreateUserDialog(request, oauthDetails)
-          }
-        case ex: QuickMessageException =>
-          logger.warn(s"Deprecated exception [TyEQMSGEX03]", ex)
-          throwForbidden("TyEQMSGEX03", ex.getMessage)
-        case ex: Exception =>
-          logger.error(s"Unexpected exception [TyEQMSGEX04]", ex)
-          throwInternalError("TyEQMSGEX03", ex.getMessage)
+          case ex: Exception =>
+            logger.error(s"Unexpected exception [TyEQMSGEX04]", ex)
+            throwInternalError("TyEQMSGEX03", ex.getMessage)
         }
     }
 
@@ -1016,13 +910,6 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
     // e.g. an "evil" tech support person, can ask for and reuse the url?
     result.discardingCookies(CookiesToDiscardAfterLogin: _*)
   }
-
-  /*
-  private def someProvidersExcept(providerId: String) =
-    Seq(GoogleProvider.ID, FacebookProvider.ID, TwitterProvider.ID, GitHubProvider.ID,
-      LinkedInProvider.ID)
-      .filterNot(_ equalsIgnoreCase providerId).mkString(", ")
-  */
 
 
 
@@ -1181,14 +1068,29 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
   }
 
 
-  def askIfLinkAccounts(identity: OpenAuthDetails, user: User, request: ApiRequest[_])
-          : Result = {
+  private def askIfLinkAccounts(identity: OpenAuthDetails, user: User,
+          request: ApiRequest[_]): Result = {
     import request.dao
     val userInclDetails = dao.loadTheUserInclDetailsById(user.id)
     val idpName = dao.getIdentityProviderNameFor(identity)
           .getOrThrowForbidden("TyEIDPGONE3905", "Identity provider was just deleted?")
     val linkSecret = nextRandomString()
     linkAccountsCache.put(linkSecret, (identity, user))
+
+    // `identity`s email has been verified. But:
+    // Note that it's safest if the old account also has verified
+    // the email address! So we know it's the same person.
+    // Otherwise someone, Mallory, could sign up with
+    // another person's, Vic's, email address, not verify it
+    // (couldn't — not his addr) and then, when Vic later signs up,
+    // Vic's IDP identity would get linked to Mallory's old account
+    // — and Mallory could thereafter login as Vic!
+    // That'd be an "Account fixation attack"? [act_fx_atk]
+    // Reminds of session fixation (it's not a session though, but an
+    // account, the attacker has prepared).
+    //
+    // That's why we incl oldEmailVerified = ...  below.
+    //
     Ok(views.html.login.askIfLinkAccounts(
           tpi = SiteTpi(request),
           oldEmailAddr = user.primaryEmailAddress,
@@ -1199,66 +1101,6 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
           idpName = idpName,
           linkSecret = linkSecret))
   }
-
-
-  /*
-  private def askIfLinkAccounts(oauthDetails: OpenAuthDetails,
-        oauthEmailVerified: Bo, connectWith: User, customIdp: Opt[IdentityProvider])
-        : Result = {
-    unimplIf(oauthEmailVerified, "TyE35KSSK2MS")
-    val linkAccountsCacheSecret = nextRandomString()
-    linkAccountsCache.put(linkAccountsCacheSecret, (oauthDetails, connectWith))
-    Ok(views.html.login.askIfLinkAccounts(
-          oldEmailAddr = connectWith.primaryEmailAddress,
-          newIdentityName = oauthDetails.nameOrUsername getOrElse oauthDetails.email.get,
-          idpName = customIdp.map(_.nameOrAlias) getOrElse oauthDetails.providerId,
-          tryLinkSecret = linkAccountsCacheSecret))
-  }
-
-
-  def sendLinkAccountsVerifEmail(tryLinkSecret: St): Action[Unit] =
-          GetActionAllowAnyoneRateLimited(RateLimits.LinkExtIdentity) {
-              request =>
-    import request.{dao, siteId}
-
-    val (oauthDetails, user) =
-          Option(linkAccountsCache.getIfPresent(tryLinkSecret))
-            .getOrThrowBadRequest("TyETRYLNACTSEC", s"Bad or expired tryLinkSecret")
-
-    // Don't reuse secrets.
-    linkAccountsCache.invalidate(tryLinkSecret)
-
-    // Verify user owns the account.
-    val emailToVerify = oauthDetails.email.getOrDie(
-          "TyE04KSRT53", s"s$siteId: No email: $oauthDetails")
-
-    // But what about secondary addresses?
-    dieIf(emailToVerify != user.primaryEmailAddress, "TyE39TKRSTRS20")
-
-    val doLinkSecret = nextRandomString()
-    linkAccountsCache.put(doLinkSecret, (oauthDetails, user))
-
-    val email = Email(
-      EmailType.LinkAccounts,
-      createdAt = globals.now(),
-      sendTo = user.primaryEmailAddress,
-      toUserId = Some(user.id),
-      subject = s"[${dao.theSiteName()}] Link accounts?",
-      bodyHtmlText = (emailId: String) => {
-        s"<tt>/-/do-link-accounts?doLinkSecret=${doLinkSecret}</tt>" /*
-        views.html.resetpassword.resetPasswordEmail(
-          userName = user.theUsername,
-          emailId = emailId,
-          siteAddress = request.host,
-          expiresInMinutes = ed.server.MaxResetPasswordEmailAgeMinutes,
-          globals = globals).body */
-      })
-    dao.saveUnsentEmail(email)
-    globals.sendEmail(email, dao.siteId)
-
-    Ok(s"\n\nCheck your email, that is: $emailToVerify" +
-        "\n\n\nYou can close this page.\n\n") as TEXT    // I18N
-  }  */
 
 
   def answerLinkAccounts: Action[JsonOrFormDataBody] = JsonOrFormDataPostAction(
@@ -1285,29 +1127,17 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
       // For now:  (note that this current user controls the email addr of
       // that other account — so gets to decide what to do with it)
       Ok("\nOk.\n\nMaybe you'd like to ask the site admins if " +
-          "they can delete that other account?\n\n") as TEXT
+          "they can delete that other account?\n\n") as TEXT  // prettify
     }
     else {
-    /*
-  def doLinkAccounts(doLinkSecret: St): Action[Unit] =
-          GetActionAllowAnyoneRateLimited(RateLimits.ResetPassword) {  // or what limits?
-            request =>
-    import request.dao
+      // Don't login — it's better to ask hen to try again, so hen will notice
+      // immediately if won't work, rather than some time later, when hen
+      // has forgotten that hen (tried to) link the accounts, and cannot provide
+      // the support staff with any meaningful info other than "it not work"?
+      // Also, logging in here, would that enable xsrf login attacks? So don't.
+      dao.createIdentityLinkToUser(user, oauthDetails)
 
-    val (oauthDetails, user) =
-          Option(linkAccountsCache.getIfPresent(doLinkSecret))
-            .getOrThrowBadRequest("TyEDOLNACTSEC", s"Bad or expired doLinkSecret")
-
-    linkAccountsCache.invalidate(doLinkSecret)
-    */
-
-    // Don't login — it's better to ask hen to try again, so hen will notice
-    // immediately if won't work, rather than some time later, when hen
-    // has forgotten that hen (tried to) link the accounts, and cannot provide
-    // the support staff with any meaningful info other than "it not work"?
-    dao.createIdentityLinkToUser(user, oauthDetails)
-
-    Ok("\nDone.\n\n\nCan you please try to login again?\n\n") as TEXT  // prettify
+      Ok("\nDone.\n\n\nCan you please try to login again?\n\n") as TEXT  // prettify
   }}
 
 
@@ -1424,8 +1254,8 @@ class LoginWithOpenAuthController @Inject()(cc: ControllerComponents, edContext:
         }
     }
 
-    // Dupl check [305RKTG2]
-    throwForbiddenIf(oauthDetails.isEmailVerifiedByIdp.isNot(true) &&
+    // IDPs can check email domains themselves.  Dupl check [alwd_eml_doms]
+    throwForbiddenIf(!oauthDetails.isSiteCustomIdp &&
           !siteSettings.isEmailAddressAllowed(emailAddress),
           "TyEBADEMLDMN_-OAUTHB", "You cannot sign up using that email address")
 

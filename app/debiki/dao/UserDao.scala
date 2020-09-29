@@ -517,50 +517,8 @@ trait UserDao {
   }
 
 
-  REFACTOR; MOVE // to package  talkyard.server.authn  ------------------------
-  def upsertIdentityProvider(identityProvider: IdentityProvider): AnyProblem = {
-    COULD_OPTIMIZE // clear idp cache
-    readWriteTransaction(_.upsertIdentityProvider(identityProvider))
-  }
-
-
-  def getIdentityProviderByAlias(protocol: St, alias: St): Option[IdentityProvider] = {
-    COULD_OPTIMIZE // cache, use getIdentityProviders()
-    readOnlyTransaction(_.loadIdentityProviderByAlias(protocol, alias))
-  }
-
-
-  def getIdentityProviderById(id: IdendityProviderId): Option[IdentityProvider] = {
-    getIdentityProviders(onlyEnabled = false).find(_.id_c == id)
-  }
-
-
-  def getIdentityProviderNameFor(identity: OpenAuthDetails): Opt[St] = {
-    identity.siteCustomIdpId match {
-      case Some(id) =>
-        // Race: Could be missing, if an admin removed the IDP just now.
-        getIdentityProviderById(id).map(_.nameOrAlias)
-      case None =>
-        // Use the IDs defined by Silhouette, e.g. "google" or "facebook" lowercase :-|
-        identity.serverDefaultIdpId
-    }
-  }
-
-
-  def getIdentityProviders(onlyEnabled: Boolean): Seq[IdentityProvider] = {
-    COULD_OPTIMIZE // cache
-    val idps = loadAllIdentityProviders()
-    if (onlyEnabled) idps.filter(_.enabled_c)
-    else idps
-  }
-
-
-  def loadAllIdentityProviders(): Seq[IdentityProvider] = {
-    readOnlyTransaction(_.loadAllIdentityProviders())
-  }
-  // -------------------------------------------------------------------------
-
-
+  RENAME // to saveIdentityCreateUser because we don't create any new identity.
+  REFACTOR // let caller login instead
   def createIdentityUserAndLogin(newUserData: NewUserData, browserIdData: BrowserIdData)
         : MemberLoginGrant = {
     val loginGrant = readWriteTransaction { tx =>
@@ -577,7 +535,9 @@ trait UserDao {
         inUseFrom = tx.now, userId = user.id))
       tx.upsertUserStats(UserStats.forNewUser(
         user.id, firstSeenAt = tx.now, emailedAt = None))
-      tx.insertIdentity(identity)
+
+      tx.insertIdentity(identity) ; REFACTOR; MOVE // ?? to AuthnSiteDaoMixin.scala
+
       joinGloballyPinnedChats(user.briefUser, tx)
 
       // Dupl code [2ABKS03R]
@@ -586,6 +546,7 @@ trait UserDao {
       }
 
       tx.insertAuditLogEntry(makeCreateUserAuditEntry(user, browserIdData, tx.now))
+      AUDIT_LOG
       MemberLoginGrant(Some(identity), user.briefUser, isNewIdentity = true, isNewMember = true)
     }
 
@@ -601,6 +562,8 @@ trait UserDao {
     * later on try to login via e.g. a Gmail account with the same email address.
     * Then we want to create a Gmail OpenAuth identity and connect it to the user
     * in the database.
+  REFACTOR; MOVE // to AuthnSiteDaoMixin.scala
+  RENAME  to  saveIdentityLink... because we don't create any new identity.
     */
   def createIdentityLinkToUser(user: User, oauthDetails: OpenAuthDetails): Identity = {
     require(user.email.nonEmpty, "DwE3KEF7")
